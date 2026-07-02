@@ -1,0 +1,27 @@
+# Python / Django
+__pycache__/
+*.py[cod]
+.venv/
+staticfiles/
+db.sqlite3
+*.log
+.pytest_cache/
+.ruff_cache/
+.tox/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Node / frontend
+node_modules/
+dist/
+
+# Vercel
+.vercel/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/

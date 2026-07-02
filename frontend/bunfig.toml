@@ -1,0 +1,3 @@
+[install]
+# Always record exact dependency versions (no ^/~ ranges).
+exact = true

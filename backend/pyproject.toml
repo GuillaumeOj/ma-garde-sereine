@@ -1,0 +1,44 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "planning-nounou backend — nanny hours tracker (Django + DRF)"
+requires-python = ">=3.13"
+dependencies = [
+    "django==6.0.6",
+    "django-cors-headers==4.9.0",
+    "django-environ==0.14.0",
+    "djangorestframework==3.17.1",
+    "gunicorn==26.0.0",
+    "psycopg[binary]==3.3.4",
+    "whitenoise==6.12.0",
+]
+
+[dependency-groups]
+dev = [
+    "django-stubs==6.0.6",
+    "djangorestframework-stubs==3.17.0",
+    "pytest==9.1.1",
+    "pytest-django==4.12.0",
+    "ruff==0.15.20",
+    "tox==4.56.1",
+    "tox-uv==1.35.2",
+    "ty==0.0.56",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "DJ"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings"
+python_files = ["test_*.py", "*_test.py", "tests.py"]
+
+[tool.ty.environment]
+python-version = "3.13"
+
+[tool.ty.src]
+# Type-check the whole backend; build/cache dirs are already git-ignored.
+exclude = [".venv", ".tox", "staticfiles"]
