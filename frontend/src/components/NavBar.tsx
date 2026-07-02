@@ -80,9 +80,9 @@ export function NavBar() {
           >
             <AppearanceControls />
             <Button
-              variant="ghost"
+              variant="destructive"
               role="menuitem"
-              className="w-full justify-center text-destructive hover:bg-destructive/10 hover:text-destructive"
+              className="w-full justify-center"
               onClick={logout}
             >
               {t('home.logout')}

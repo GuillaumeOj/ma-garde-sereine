@@ -13,8 +13,9 @@ import { extractErrorMessages } from '../api/errors'
 import { useAuth } from '../auth/AuthContext'
 import { FormErrors } from '../components/FormErrors'
 import { Modal } from '../components/Modal'
+import { SectionCard } from '../components/SectionCard'
+import { TextField } from '../components/TextField'
 import { Button } from '../components/ui/button'
-import { Card, CardContent } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
@@ -48,31 +49,6 @@ export default function SettingsPage() {
         </TabsContent>
       </Tabs>
     </main>
-  )
-}
-
-// A titled card section used by each settings block.
-function Section({
-  title,
-  description,
-  children,
-}: {
-  title: string
-  description?: string
-  children: React.ReactNode
-}) {
-  return (
-    <Card>
-      <CardContent className="flex flex-col gap-4">
-        <div className="flex flex-col gap-1">
-          <h2 className="font-heading text-lg font-medium">{title}</h2>
-          {description && (
-            <p className="text-sm text-muted-foreground">{description}</p>
-          )}
-        </div>
-        {children}
-      </CardContent>
-    </Card>
   )
 }
 
@@ -115,7 +91,7 @@ function ProfileSection() {
   })
 
   return (
-    <Section
+    <SectionCard
       title={t('settings.profile.title')}
       description={t('settings.profile.description')}
     >
@@ -129,36 +105,22 @@ function ProfileSection() {
       >
         <form.Field name="first_name">
           {(field) => (
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="profile-first-name">
-                {t('settings.profile.firstName')}
-              </Label>
-              <Input
-                id="profile-first-name"
-                name={field.name}
-                value={field.state.value}
-                onBlur={field.handleBlur}
-                onChange={(event) => field.handleChange(event.target.value)}
-                autoComplete="given-name"
-              />
-            </div>
+            <TextField
+              field={field}
+              id="profile-first-name"
+              label={t('settings.profile.firstName')}
+              autoComplete="given-name"
+            />
           )}
         </form.Field>
         <form.Field name="last_name">
           {(field) => (
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="profile-last-name">
-                {t('settings.profile.lastName')}
-              </Label>
-              <Input
-                id="profile-last-name"
-                name={field.name}
-                value={field.state.value}
-                onBlur={field.handleBlur}
-                onChange={(event) => field.handleChange(event.target.value)}
-                autoComplete="family-name"
-              />
-            </div>
+            <TextField
+              field={field}
+              id="profile-last-name"
+              label={t('settings.profile.lastName')}
+              autoComplete="family-name"
+            />
           )}
         </form.Field>
         <FormErrors messages={errors} />
@@ -177,7 +139,7 @@ function ProfileSection() {
           )}
         </form.Subscribe>
       </form>
-    </Section>
+    </SectionCard>
   )
 }
 
@@ -220,7 +182,7 @@ function EmailSection() {
   }
 
   return (
-    <Section title={t('settings.email.title')}>
+    <SectionCard title={t('settings.email.title')}>
       <p className="text-sm text-muted-foreground">{user?.email}</p>
       <form className="flex flex-col gap-4" onSubmit={openDialog}>
         <div className="flex flex-col gap-2">
@@ -272,7 +234,7 @@ function EmailSection() {
           </form>
         </Modal>
       )}
-    </Section>
+    </SectionCard>
   )
 }
 
@@ -296,7 +258,7 @@ function PasswordSection() {
   })
 
   return (
-    <Section title={t('settings.password.title')}>
+    <SectionCard title={t('settings.password.title')}>
       <form
         className="flex flex-col gap-4"
         onSubmit={(event) => {
@@ -307,38 +269,26 @@ function PasswordSection() {
       >
         <form.Field name="current_password">
           {(field) => (
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="current-password">
-                {t('settings.currentPassword')}
-              </Label>
-              <Input
-                id="current-password"
-                type="password"
-                name={field.name}
-                value={field.state.value}
-                onBlur={field.handleBlur}
-                onChange={(event) => field.handleChange(event.target.value)}
-                autoComplete="current-password"
-                required
-              />
-            </div>
+            <TextField
+              field={field}
+              id="current-password"
+              label={t('settings.currentPassword')}
+              type="password"
+              autoComplete="current-password"
+              required
+            />
           )}
         </form.Field>
         <form.Field name="new_password">
           {(field) => (
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="new-password">{t('settings.password.new')}</Label>
-              <Input
-                id="new-password"
-                type="password"
-                name={field.name}
-                value={field.state.value}
-                onBlur={field.handleBlur}
-                onChange={(event) => field.handleChange(event.target.value)}
-                autoComplete="new-password"
-                required
-              />
-            </div>
+            <TextField
+              field={field}
+              id="new-password"
+              label={t('settings.password.new')}
+              type="password"
+              autoComplete="new-password"
+              required
+            />
           )}
         </form.Field>
         <FormErrors messages={errors} />
@@ -357,7 +307,7 @@ function PasswordSection() {
           )}
         </form.Subscribe>
       </form>
-    </Section>
+    </SectionCard>
   )
 }
 
@@ -408,7 +358,7 @@ function ChildrenSection() {
   })
 
   return (
-    <Section
+    <SectionCard
       title={t('settings.children.title')}
       description={t('settings.children.description')}
     >
@@ -450,19 +400,12 @@ function ChildrenSection() {
       >
         <addForm.Field name="first_name">
           {(field) => (
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="child-first-name">
-                {t('settings.children.firstName')}
-              </Label>
-              <Input
-                id="child-first-name"
-                name={field.name}
-                value={field.state.value}
-                onBlur={field.handleBlur}
-                onChange={(event) => field.handleChange(event.target.value)}
-                required
-              />
-            </div>
+            <TextField
+              field={field}
+              id="child-first-name"
+              label={t('settings.children.firstName')}
+              required
+            />
           )}
         </addForm.Field>
         <addForm.Subscribe selector={(state) => state.isSubmitting}>
@@ -479,7 +422,7 @@ function ChildrenSection() {
           )}
         </addForm.Subscribe>
       </form>
-    </Section>
+    </SectionCard>
   )
 }
 
@@ -511,12 +454,7 @@ function ChildRow({
       >
         {t('settings.children.save')}
       </Button>
-      <Button
-        variant="ghost"
-        type="button"
-        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-        onClick={onDelete}
-      >
+      <Button variant="destructive" type="button" onClick={onDelete}>
         {t('settings.children.delete')}
       </Button>
     </li>

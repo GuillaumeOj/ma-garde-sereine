@@ -7,6 +7,7 @@ import { extractErrorMessages } from '../api/errors'
 import { useI18n } from '../i18n/I18nContext'
 import type { TranslationKey } from '../i18n/translations'
 import { FormErrors } from './FormErrors'
+import { TextField } from './TextField'
 import { Button } from './ui/button'
 import {
   Card,
@@ -16,8 +17,6 @@ import {
   CardHeader,
   CardTitle,
 } from './ui/card'
-import { Input } from './ui/input'
-import { Label } from './ui/label'
 
 interface AuthFormProps {
   variant: 'login' | 'register'
@@ -77,38 +76,28 @@ export function AuthForm({ variant, onSubmit }: AuthFormProps) {
           >
             <form.Field name="email">
               {(field) => (
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor={field.name}>{t('field.email')}</Label>
-                  <Input
-                    id={field.name}
-                    type="email"
-                    name={field.name}
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => field.handleChange(event.target.value)}
-                    placeholder={t('field.emailPlaceholder')}
-                    autoComplete="email"
-                    required
-                  />
-                </div>
+                <TextField
+                  field={field}
+                  id={field.name}
+                  label={t('field.email')}
+                  type="email"
+                  placeholder={t('field.emailPlaceholder')}
+                  autoComplete="email"
+                  required
+                />
               )}
             </form.Field>
             <form.Field name="password">
               {(field) => (
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor={field.name}>{t('field.password')}</Label>
-                  <Input
-                    id={field.name}
-                    type="password"
-                    name={field.name}
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => field.handleChange(event.target.value)}
-                    placeholder={passwordPlaceholder}
-                    autoComplete={passwordAutoComplete}
-                    required
-                  />
-                </div>
+                <TextField
+                  field={field}
+                  id={field.name}
+                  label={t('field.password')}
+                  type="password"
+                  placeholder={passwordPlaceholder}
+                  autoComplete={passwordAutoComplete}
+                  required
+                />
               )}
             </form.Field>
             <FormErrors messages={errors} />

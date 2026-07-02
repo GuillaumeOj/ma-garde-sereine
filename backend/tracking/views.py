@@ -1,4 +1,4 @@
-from rest_framework import generics
+from rest_framework import permissions, viewsets
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
@@ -16,22 +16,14 @@ def health(_request: Request) -> Response:
     return Response({"status": "ok"})
 
 
-class NannyListCreateView(generics.ListCreateAPIView):
-    """List the requesting user's nannies or add a new one."""
+class NannyViewSet(viewsets.ModelViewSet):
+    """CRUD for the authenticated user's nannies, scoped to that user."""
 
     serializer_class = NannySerializer
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         return Nanny.objects.filter(owner=self.request.user)
 
     def perform_create(self, serializer: BaseSerializer) -> None:
         serializer.save(owner=self.request.user)
-
-
-class NannyDetailView(generics.RetrieveUpdateDestroyAPIView):
-    """Retrieve, update, or delete one of the requesting user's nannies."""
-
-    serializer_class = NannySerializer
-
-    def get_queryset(self):
-        return Nanny.objects.filter(owner=self.request.user)

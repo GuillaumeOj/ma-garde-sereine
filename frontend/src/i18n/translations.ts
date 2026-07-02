@@ -62,7 +62,6 @@ const en = {
   'nanny.adding': 'Adding…',
   'nanny.save': 'Save changes',
   'nanny.saving': 'Saving…',
-  'nanny.cancel': 'Cancel',
   'nanny.edit': 'Edit',
   'nanny.delete': 'Delete',
   'nanny.confirmDelete': 'Delete this nanny? This cannot be undone.',
@@ -170,7 +169,6 @@ const fr: Record<TranslationKey, string> = {
   'nanny.adding': 'Ajout…',
   'nanny.save': 'Enregistrer',
   'nanny.saving': 'Enregistrement…',
-  'nanny.cancel': 'Annuler',
   'nanny.edit': 'Modifier',
   'nanny.delete': 'Supprimer',
   'nanny.confirmDelete':

@@ -14,6 +14,8 @@ import {
   updateNanny,
 } from '../api/nannies'
 import { FormErrors } from '../components/FormErrors'
+import { SectionCard } from '../components/SectionCard'
+import { TextField } from '../components/TextField'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -79,10 +81,12 @@ function DateField({
   const [open, setOpen] = useState(false)
   const [text, setText] = useState(() => (value ? formatDate(value, lang) : ''))
 
-  const shownIso = text.trim() ? parseLocalizedDate(text, lang) : ''
+  const toIso = (raw: string) =>
+    raw.trim() ? parseLocalizedDate(raw, lang) : ''
+  const shownIso = toIso(text)
   // Sync the displayed text when the ISO value changes from outside typing
-  // (edit prefill, a calendar pick, or a post-submit reset), but leave partial
-  // typing alone (when the field's ISO already matches what is shown).
+  // (a calendar pick or a post-submit reset), but leave partial typing alone
+  // (when the field's ISO already matches what is shown).
   useEffect(() => {
     if (value !== shownIso) {
       setText(value ? formatDate(value, lang) : '')
@@ -109,11 +113,7 @@ function DateField({
           required={required}
           onChange={(event) => {
             setText(event.target.value)
-            onChange(
-              event.target.value.trim()
-                ? parseLocalizedDate(event.target.value, lang)
-                : '',
-            )
+            onChange(toIso(event.target.value))
           }}
         />
         <Popover open={open} onOpenChange={setOpen}>
@@ -218,34 +218,24 @@ function NannyForm({
     >
       <form.Field name="first_name">
         {(field) => (
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="nanny-first-name">{t('nanny.firstName')}</Label>
-            <Input
-              id="nanny-first-name"
-              name={field.name}
-              value={field.state.value}
-              onBlur={field.handleBlur}
-              onChange={(event) => field.handleChange(event.target.value)}
-              autoComplete="off"
-              required
-            />
-          </div>
+          <TextField
+            field={field}
+            id="nanny-first-name"
+            label={t('nanny.firstName')}
+            autoComplete="off"
+            required
+          />
         )}
       </form.Field>
       <form.Field name="last_name">
         {(field) => (
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="nanny-last-name">{t('nanny.lastName')}</Label>
-            <Input
-              id="nanny-last-name"
-              name={field.name}
-              value={field.state.value}
-              onBlur={field.handleBlur}
-              onChange={(event) => field.handleChange(event.target.value)}
-              autoComplete="off"
-              required
-            />
-          </div>
+          <TextField
+            field={field}
+            id="nanny-last-name"
+            label={t('nanny.lastName')}
+            autoComplete="off"
+            required
+          />
         )}
       </form.Field>
       <form.Field name="starting_date">
@@ -282,7 +272,7 @@ function NannyForm({
         </form.Subscribe>
         {onCancel && (
           <Button variant="outline" type="button" onClick={onCancel}>
-            {t('nanny.cancel')}
+            {t('common.cancel')}
           </Button>
         )}
       </div>
@@ -366,12 +356,7 @@ export default function Nannies() {
                     </Button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          type="button"
-                          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        >
+                        <Button variant="destructive" size="sm" type="button">
                           {t('nanny.delete')}
                         </Button>
                       </AlertDialogTrigger>
@@ -386,7 +371,7 @@ export default function Nannies() {
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                           <AlertDialogCancel>
-                            {t('nanny.cancel')}
+                            {t('common.cancel')}
                           </AlertDialogCancel>
                           <AlertDialogAction
                             className="bg-destructive text-white hover:bg-destructive/90"
@@ -407,28 +392,26 @@ export default function Nannies() {
         </CardContent>
       </Card>
 
-      <Card className="max-w-xl">
-        <CardContent className="flex flex-col gap-4">
-          <h2 className="font-heading text-lg font-medium">
-            {editing ? t('nanny.editTitle') : t('nanny.addTitle')}
-          </h2>
-          <NannyForm
-            // Remount with fresh defaults when switching between add and edit.
-            key={editing?.id ?? 'new'}
-            initialValues={editing ? toFormValues(editing) : EMPTY_VALUES}
-            submitLabel={editing ? t('nanny.save') : t('nanny.add')}
-            submittingLabel={editing ? t('nanny.saving') : t('nanny.adding')}
-            onCancel={editing ? () => setEditing(null) : undefined}
-            onSubmit={async (input) => {
-              if (editing) {
-                await updateMutation.mutateAsync({ id: editing.id, input })
-              } else {
-                await createMutation.mutateAsync(input)
-              }
-            }}
-          />
-        </CardContent>
-      </Card>
+      <SectionCard
+        className="max-w-xl"
+        title={editing ? t('nanny.editTitle') : t('nanny.addTitle')}
+      >
+        <NannyForm
+          // Remount with fresh defaults when switching between add and edit.
+          key={editing?.id ?? 'new'}
+          initialValues={editing ? toFormValues(editing) : EMPTY_VALUES}
+          submitLabel={editing ? t('nanny.save') : t('nanny.add')}
+          submittingLabel={editing ? t('nanny.saving') : t('nanny.adding')}
+          onCancel={editing ? () => setEditing(null) : undefined}
+          onSubmit={async (input) => {
+            if (editing) {
+              await updateMutation.mutateAsync({ id: editing.id, input })
+            } else {
+              await createMutation.mutateAsync(input)
+            }
+          }}
+        />
+      </SectionCard>
     </main>
   )
 }

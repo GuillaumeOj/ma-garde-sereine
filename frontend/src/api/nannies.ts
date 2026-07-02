@@ -9,12 +9,7 @@ export interface Nanny {
 }
 
 // Fields the UI submits; the backend sets the owner from the auth token.
-export interface NannyInput {
-  first_name: string
-  last_name: string
-  starting_date: string
-  ending_date: string | null
-}
+export type NannyInput = Omit<Nanny, 'id'>
 
 export async function getNannies(): Promise<Nanny[]> {
   const { data } = await api.get<Nanny[]>('/nannies/')
