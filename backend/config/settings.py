@@ -21,7 +21,17 @@ environ.Env.read_env(BASE_DIR / ".env")
 # own value for the same variable name (env vars are scoped per environment there), so the
 # same code reads e.g. DATABASE_URL and gets the right database in each. Locally we read the
 # same names from the environment / a .env file, falling back to the defaults passed below.
-SECRET_KEY = env("SECRET_KEY", default="django-insecure-dev-only-change-me")
+
+# VERCEL_ENV is "production"/"preview" on Vercel deploys, unset locally.
+_ON_VERCEL = env("VERCEL_ENV", default="") in {"production", "preview"}
+
+# On Vercel a real SECRET_KEY must be provided (no default → startup fails loudly if it's
+# missing); only local/dev falls back to the insecure placeholder.
+SECRET_KEY = (
+    env("SECRET_KEY")
+    if _ON_VERCEL
+    else env("SECRET_KEY", default="django-insecure-dev-only-change-me")
+)
 
 DEBUG = env("DEBUG", cast=bool, default=False)
 
