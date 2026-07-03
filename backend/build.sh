@@ -5,7 +5,9 @@ set -euo pipefail
 
 # Collect static assets so WhiteNoise can serve the Django admin + DRF browsable API
 # at runtime. Vercel's automatic collectstatic does not fire for this Services-model
-# backend, so we run it ourselves; the output is bundled into the function.
+# backend, so we run it ourselves. The Python builder bundles by tracing imports and
+# won't pick up this generated dir on its own, so vercel.json's backend function sets
+# includeFiles: "staticfiles/**" to force staticfiles/ into the function bundle.
 echo "Collecting static files"
 python manage.py collectstatic --noinput
 
