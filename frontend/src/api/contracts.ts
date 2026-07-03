@@ -88,6 +88,15 @@ export interface ContractInvitation {
   expires_at: string
 }
 
+// A pending contract invitation addressed to the logged-in user (their inbox).
+export interface MyContractInvitation {
+  id: number
+  nanny_first_name: string
+  nanny_last_name: string
+  token: string
+  expires_at: string
+}
+
 export interface MinimumWage {
   net_hourly_rate: string | null
 }
@@ -247,4 +256,30 @@ export async function revokeContractInvitation(
   await api.delete(
     `${base(familyId)}${contractId}/invitations/${invitationId}/`,
   )
+}
+
+// Contract invitations addressed to the logged-in user (inbox notification).
+export async function getMyContractInvitations(): Promise<
+  MyContractInvitation[]
+> {
+  const { data } = await api.get<MyContractInvitation[]>(
+    '/contract-invitations/',
+  )
+  return data
+}
+
+// Accept a shared contract, attaching one of the user's families to it.
+export async function acceptContractInvitation(
+  token: string,
+  familyId: number,
+): Promise<Contract> {
+  const { data } = await api.post<Contract>(
+    `/contract-invitations/${token}/accept/`,
+    { family_id: familyId },
+  )
+  return data
+}
+
+export async function declineContractInvitation(token: string): Promise<void> {
+  await api.post(`/contract-invitations/${token}/decline/`)
 }

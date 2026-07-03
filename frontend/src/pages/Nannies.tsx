@@ -4,6 +4,7 @@ import { enUS, fr } from 'date-fns/locale'
 import { CalendarIcon } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import {
+  acceptContractInvitation,
   type Contract,
   type ContractInput,
   type ContractSchedule,
@@ -14,6 +15,7 @@ import {
   createContractInvitation,
   createContractSchedule,
   createContractTerms,
+  declineContractInvitation,
   deleteContract,
   deleteContractSchedule,
   deleteContractTerms,
@@ -22,13 +24,14 @@ import {
   getContracts,
   getContractTerms,
   getMinimumWage,
+  getMyContractInvitations,
   type Nanny,
   revokeContractInvitation,
   updateContractSchedule,
   updateContractTerms,
 } from '../api/contracts'
 import { extractErrorMessages } from '../api/errors'
-import { getFamilies } from '../api/family'
+import { type Family, getFamilies } from '../api/family'
 import { ConfirmButton } from '../components/ConfirmButton'
 import { FormErrors } from '../components/FormErrors'
 import { Modal } from '../components/Modal'
@@ -1246,6 +1249,120 @@ function ContractWizard({
 
 // --- Page -------------------------------------------------------------------
 
+// A user can attach a family to a contract only when they own it, or created it
+// and it is still unclaimed. Mirrors the backend's Family.can_manage.
+function canManageFamily(family: Family): boolean {
+  return family.role === 'owner' || (family.role === null && !family.is_claimed)
+}
+
+// Contract invitations addressed to the logged-in user — how an existing
+// account discovers a shared contract they've been invited to join. Accepting
+// requires choosing which of the user's families joins the contract.
+function PendingContractInvitationsSection({
+  families,
+}: {
+  families: Family[]
+}) {
+  const { t } = useI18n()
+  const queryClient = useQueryClient()
+  // Per-invitation choice of which family joins; defaults to the first one.
+  const [joinAs, setJoinAs] = useState<Record<number, number>>({})
+
+  const { data: invitations } = useQuery({
+    queryKey: ['my-contract-invitations'],
+    queryFn: getMyContractInvitations,
+  })
+
+  const acceptMutation = useMutation({
+    mutationFn: ({ token, familyId }: { token: string; familyId: number }) =>
+      acceptContractInvitation(token, familyId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['my-contract-invitations'] })
+      queryClient.invalidateQueries({ queryKey: ['contracts'] })
+    },
+  })
+  const declineMutation = useMutation({
+    mutationFn: (token: string) => declineContractInvitation(token),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ['my-contract-invitations'] }),
+  })
+
+  if (!invitations || invitations.length === 0) return null
+  const manageable = families.filter(canManageFamily)
+  const busy = acceptMutation.isPending || declineMutation.isPending
+
+  return (
+    <SectionCard title={t('contract.inbox.title')} className="max-w-2xl">
+      <ul className="flex flex-col divide-y">
+        {invitations.map((invite) => {
+          const familyId = joinAs[invite.id] ?? manageable[0]?.id
+          return (
+            <li
+              key={invite.id}
+              className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0 last:pb-0"
+            >
+              <div className="flex flex-col gap-0.5">
+                <span className="font-medium text-foreground">
+                  {invite.nanny_first_name} {invite.nanny_last_name}
+                </span>
+                <span className="text-sm text-muted-foreground">
+                  {t('contract.inbox.subtitle')}
+                </span>
+              </div>
+              {manageable.length === 0 ? (
+                <span className="text-sm text-muted-foreground">
+                  {t('contract.inbox.noFamily')}
+                </span>
+              ) : (
+                <div className="flex items-center gap-2">
+                  {manageable.length > 1 && (
+                    <select
+                      aria-label={t('contract.inbox.joinAs')}
+                      className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
+                      value={familyId}
+                      onChange={(e) =>
+                        setJoinAs((prev) => ({
+                          ...prev,
+                          [invite.id]: Number(e.target.value),
+                        }))
+                      }
+                    >
+                      {manageable.map((f) => (
+                        <option key={f.id} value={f.id}>
+                          {f.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() =>
+                      acceptMutation.mutate({ token: invite.token, familyId })
+                    }
+                  >
+                    {t('invite.accept')}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => declineMutation.mutate(invite.token)}
+                  >
+                    {t('invite.decline')}
+                  </Button>
+                </div>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    </SectionCard>
+  )
+}
+
 export default function Nannies() {
   const { t, lang } = useI18n()
   const queryClient = useQueryClient()
@@ -1294,6 +1411,7 @@ export default function Nannies() {
         <h1 className="text-3xl font-semibold tracking-tight">
           {t('nanny.title')}
         </h1>
+        <PendingContractInvitationsSection families={families ?? []} />
         <p className="text-sm text-muted-foreground">
           {t('contract.noFamilies')}
         </p>
@@ -1306,6 +1424,8 @@ export default function Nannies() {
       <h1 className="text-3xl font-semibold tracking-tight">
         {t('nanny.title')}
       </h1>
+
+      <PendingContractInvitationsSection families={families} />
 
       <div className="flex flex-col gap-2 max-w-xs">
         <Label htmlFor="acting-family">{t('contract.selectFamily')}</Label>

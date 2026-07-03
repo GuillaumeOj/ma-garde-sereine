@@ -2,6 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  acceptContractInvitation,
   type Contract,
   type ContractSchedule,
   type ContractTerms,
@@ -9,6 +10,7 @@ import {
   createContractInvitation,
   createContractSchedule,
   createContractTerms,
+  declineContractInvitation,
   deleteContract,
   deleteContractSchedule,
   deleteContractTerms,
@@ -17,6 +19,7 @@ import {
   getContracts,
   getContractTerms,
   getMinimumWage,
+  getMyContractInvitations,
   revokeContractInvitation,
   updateContractSchedule,
   updateContractTerms,
@@ -42,6 +45,9 @@ vi.mock('../api/contracts', () => ({
   getContractInvitations: vi.fn(),
   createContractInvitation: vi.fn(),
   revokeContractInvitation: vi.fn(),
+  getMyContractInvitations: vi.fn(),
+  acceptContractInvitation: vi.fn(),
+  declineContractInvitation: vi.fn(),
   getMinimumWage: vi.fn(),
 }))
 
@@ -61,6 +67,9 @@ const m = {
   invitations: vi.mocked(getContractInvitations),
   createInvitation: vi.mocked(createContractInvitation),
   revoke: vi.mocked(revokeContractInvitation),
+  myInvitations: vi.mocked(getMyContractInvitations),
+  acceptMyInvitation: vi.mocked(acceptContractInvitation),
+  declineMyInvitation: vi.mocked(declineContractInvitation),
   minimum: vi.mocked(getMinimumWage),
 }
 
@@ -120,6 +129,7 @@ beforeEach(() => {
   m.terms.mockResolvedValue([])
   m.schedules.mockResolvedValue([])
   m.invitations.mockResolvedValue([])
+  m.myInvitations.mockResolvedValue([])
   m.minimum.mockResolvedValue({ net_hourly_rate: '10.07' })
 })
 afterEach(() => vi.clearAllMocks())
@@ -209,6 +219,50 @@ describe('Nannies page', () => {
     const dialog = await screen.findByRole('alertdialog')
     await user.click(within(dialog).getByRole('button', { name: 'Delete' }))
     await waitFor(() => expect(m.deleteContract).toHaveBeenCalledWith(1, 10))
+  })
+
+  it('accepts a shared-contract invitation with the acting family', async () => {
+    const user = userEvent.setup()
+    m.myInvitations.mockResolvedValue([
+      {
+        id: 7,
+        nanny_first_name: 'Alice',
+        nanny_last_name: 'Martin',
+        token: 'inv-tok',
+        expires_at: '2026-01-08T00:00:00Z',
+      },
+    ])
+    m.acceptMyInvitation.mockResolvedValue(makeContract())
+    renderWithProviders(<Nannies />)
+
+    expect(
+      await screen.findByText('Contracts shared with you'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Alice Martin')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Accept invitation' }))
+    await waitFor(() =>
+      expect(m.acceptMyInvitation).toHaveBeenCalledWith('inv-tok', 1),
+    )
+  })
+
+  it('declines a shared-contract invitation', async () => {
+    const user = userEvent.setup()
+    m.myInvitations.mockResolvedValue([
+      {
+        id: 7,
+        nanny_first_name: 'Alice',
+        nanny_last_name: 'Martin',
+        token: 'inv-tok',
+        expires_at: '2026-01-08T00:00:00Z',
+      },
+    ])
+    m.declineMyInvitation.mockResolvedValue()
+    renderWithProviders(<Nannies />)
+    await screen.findByText('Contracts shared with you')
+    await user.click(screen.getByRole('button', { name: 'Decline' }))
+    await waitFor(() =>
+      expect(m.declineMyInvitation).toHaveBeenCalledWith('inv-tok'),
+    )
   })
 })
 
