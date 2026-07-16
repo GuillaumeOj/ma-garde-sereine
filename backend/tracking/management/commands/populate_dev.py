@@ -127,7 +127,8 @@ class Command(BaseCommand):
         if not settings.DEBUG:
             raise CommandError(
                 "populate_dev only runs on the dev stack — DEBUG is off. "
-                "Start it with `uv run tox -e dev`, or set DEBUG=1."
+                "Run it with `uv run tox -e populate`, which sets DEBUG and points at the "
+                "dev database for you."
             )
 
     # --- teardown ---------------------------------------------------------

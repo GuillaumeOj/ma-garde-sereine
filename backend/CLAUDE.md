@@ -3,9 +3,9 @@
 ## Keep `populate_dev` in sync with the features you add
 
 `tracking/management/commands/populate_dev.py` builds the demo dataset the dev
-stack runs on. It is not test fixture code — it's how everyone gets a database
-they can actually click through, and it's the first place a new feature gets
-looked at.
+stack runs on (`uv run tox -e populate`). It is not test fixture code — it's how
+everyone gets a database they can actually click through, and it's the first
+place a new feature gets looked at.
 
 **When you add or change a backend feature, extend `populate_dev` in the same
 change.** A feature the demo dataset never creates is one nobody sees in dev
