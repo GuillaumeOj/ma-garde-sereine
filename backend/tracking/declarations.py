@@ -34,6 +34,7 @@ guarantees the parts sum to the whole. Floats do not: 10h split three ways is
 from __future__ import annotations
 
 import calendar
+import math
 from collections import defaultdict
 from dataclasses import dataclass, replace
 from datetime import date, time, timedelta
@@ -225,7 +226,15 @@ class Bands:
         return Bands(self.normal * factor, self.at_25 * factor, self.at_50 * factor)
 
     def clamped(self) -> Bands:
-        """No band may go negative — a month of unpaid leave deducts to zero, not below."""
+        """Floor every band at zero.
+
+        Nothing should reach here negative now that absence is a ratio rather than
+        a subtraction (see attendance_ratio) — a ratio cannot overshoot. It stays
+        as a backstop for the exceptional path, which adds rather than subtracts.
+        Note it clamps each band independently, so it cannot be used to absorb a
+        deduction across bands; if a caller ever needs that, it needs a different
+        function, not this one with a wider remit.
+        """
         zero = Fraction(0)
         return Bands(max(zero, self.normal), max(zero, self.at_25), max(zero, self.at_50))
 
@@ -365,13 +374,19 @@ def presence_on(
 
     A child with no windows at all is always present, and an override adds
     nothing to that. Otherwise presence is the union of that weekday's windows
-    with any override for the date — an override *adds* presence, it does not
+    with any override *for this date* — an override adds presence, it does not
     replace the regular week.
+
+    Note the override is matched on the date as well as the child. Matching the
+    child alone reads identically and is wrong in a way nothing would notice: a
+    one-off Monday would silently repeat on every Monday of the month.
     """
     if not child.windows:
         return None
     intervals = [Interval(w.start, w.end) for w in child.windows if w.weekday == day.weekday()]
-    intervals += [Interval(o.start, o.end) for o in overrides if o.child_id == child.child_id]
+    intervals += [
+        Interval(o.start, o.end) for o in overrides if o.child_id == child.child_id and o.day == day
+    ]
     return merge_intervals(intervals)
 
 
@@ -450,7 +465,7 @@ def segment_weights(
     split_method: str,
     family_ids: Sequence[UUID],
 ) -> dict[UUID, Fraction]:
-    """Each family's share of a segment. Sums to exactly 1.
+    """Each family's share of a segment. Sums to exactly 1, always.
 
     With no child present the weights would all be zero. Dropping the segment
     would break the sum invariant and underpay the nanny, so it falls back to an
@@ -458,11 +473,19 @@ def segment_weights(
     branch: a contract with no children listed takes it for *every* segment,
     which is what keeps this feature additive for contracts that predate it —
     equal when shared, 100% when solo, i.e. the status quo.
+
+    A child whose family has no share in the contract counts for nobody. It
+    should not exist — ContractChild.clean rejects it — but `clean` does not run
+    on `.create()`, and the alternative to ignoring it here is worse: it would
+    take a share of the segment and then be dropped from the result, quietly
+    deleting minutes the nanny worked. Ignoring it routes those minutes to the
+    families that *are* on the contract, which is the answer the invariant needs.
     """
+    on_contract = set(family_ids)
     counts: defaultdict[UUID, int] = defaultdict(int)
     for child_id in present:
         child = children.get(child_id)
-        if child is not None:
+        if child is not None and child.family_id in on_contract:
             counts[child.family_id] += 1
 
     if not counts:
@@ -520,12 +543,29 @@ def week_segments(
     children: Mapping[UUID, ChildPresence],
     split_method: str,
     family_ids: Sequence[UUID],
+    day: date | None = None,
+    overrides: Sequence[PresenceOverride] = (),
 ) -> list[tuple[Segment, dict[UUID, Fraction]]]:
-    """Every segment of the schedule's week, in order, with its family shares."""
+    """Every segment of the schedule's week, in order, with its family shares.
+
+    `day` anchors the week to a real date so that a :class:`PresenceOverride` can
+    be matched against it. Without one the week is the regular template and the
+    weekday alone decides presence — which is what the mensualised base wants,
+    since a base built from one month's exceptions would not be a base.
+    """
     out: list[tuple[Segment, dict[UUID, Fraction]]] = []
     for block in sorted(schedule.blocks, key=lambda b: (b.weekday, b.start)):
-        day = date(2024, 1, 1) + timedelta(days=block.weekday)  # a Monday; weekday only
-        presences = {child_id: presence_on(child, day) for child_id, child in children.items()}
+        if day is None:
+            # A Monday, for its weekday only; no override can match it.
+            block_day = date(2024, 1, 1) + timedelta(days=block.weekday)
+            block_overrides: Sequence[PresenceOverride] = ()
+        else:
+            block_day = day + timedelta(days=block.weekday - day.weekday())
+            block_overrides = overrides
+        presences = {
+            child_id: presence_on(child, block_day, block_overrides)
+            for child_id, child in children.items()
+        }
         for segment in segment_block(block, presences):
             out.append(
                 (segment, segment_weights(segment.present, children, split_method, family_ids))
@@ -538,6 +578,8 @@ def band_week(
     children: Mapping[UUID, ChildPresence],
     split_method: str,
     family_ids: Sequence[UUID],
+    day: date | None = None,
+    overrides: Sequence[PresenceOverride] = (),
 ) -> WeekBands:
     """Band the nanny's whole week by chronological position, then split each band.
 
@@ -553,7 +595,9 @@ def band_week(
     minutes_by_weekday: defaultdict[int, int] = defaultdict(int)
 
     position = 0
-    for segment, shares in week_segments(schedule, children, split_method, family_ids):
+    for segment, shares in week_segments(
+        schedule, children, split_method, family_ids, day=day, overrides=overrides
+    ):
         minutes_by_weekday[segment.weekday] += segment.minutes
         for band, minutes in allocate_bands(position, segment.minutes):
             for family_id, share in shares.items():
@@ -709,6 +753,56 @@ def attendance_ratio(planned: Fraction, worked: Fraction) -> Fraction:
     return min(Fraction(1), worked / planned)
 
 
+# --- exceptional presence ----------------------------------------------------
+
+
+def presence_corrections(
+    data: ContractMonth, children: Mapping[UUID, ChildPresence]
+) -> dict[UUID, Bands]:
+    """How a child's one-off presence moves the split, per family.
+
+    An ExceptionalPresence does not lengthen the nanny's day — she is already
+    there for the others — so this returns a *transfer*, not an addition: the
+    corrections sum to zero across the families, and the month's total hours are
+    untouched. What moves is who owes them.
+
+    The base is mensualised from the regular week, which is what a base is for; a
+    base built from one month's exceptions would not be one. So each affected date
+    is re-split with the override applied and the difference against the same date
+    without it is carried, leaving every other day alone.
+    """
+    if not data.overrides:
+        return {}
+    first, last = month_bounds(data.month)
+    by_day: defaultdict[date, list[PresenceOverride]] = defaultdict(list)
+    for override in data.overrides:
+        if first <= override.day <= last and override.child_id in children:
+            by_day[override.day].append(override)
+
+    out: defaultdict[UUID, Bands] = defaultdict(Bands)
+    for day in sorted(by_day):
+        schedule = in_force(data.schedules, day)
+        if schedule is None:
+            continue
+        if day < data.starting_date or (data.ending_date and day > data.ending_date):
+            continue
+        blocks = tuple(b for b in schedule.blocks if b.weekday == day.weekday())
+        if not blocks:
+            continue
+        one_day = replace(schedule, blocks=blocks)
+        before = band_week(one_day, children, data.split_method, data.family_ids)
+        after = band_week(
+            one_day, children, data.split_method, data.family_ids, day=day, overrides=by_day[day]
+        )
+        for family_id in data.family_ids:
+            out[family_id] = (
+                out[family_id]
+                + after.total.get(family_id, Bands())
+                - before.total.get(family_id, Bands())
+            )
+    return dict(out)
+
+
 # --- exceptional hours -------------------------------------------------------
 
 
@@ -767,7 +861,12 @@ def reconcile_exceptional(
     they divide by the contract's usual rule. Where they do not, they are wholly
     the filer's.
     """
-    spans = family_intervals(entries)
+    # Filter BEFORE splitting, never after. A filer with no share in the contract
+    # would otherwise dilute the split and then be dropped from the result, and
+    # the minutes it diluted away would go to nobody: two families filing the same
+    # two hours would pay the nanny for one.
+    on_contract = set(family_ids)
+    spans = family_intervals(e for e in entries if e.family_id in on_contract)
     if not spans:
         return {}
 
@@ -786,15 +885,27 @@ def reconcile_exceptional(
         ]
         if not present:
             continue
-        if split_method == "equal":
-            weights = {family_id: Fraction(1) for family_id in present}
-        else:
-            weights = {family_id: Fraction(counts.get(family_id, 1) or 1) for family_id in present}
+        weights = _family_weights(present, counts, split_method)
         total = sum(weights.values())
         for family_id, weight in weights.items():
             out[family_id] += Fraction(minutes) * weight / total
 
-    return {family_id: value for family_id, value in out.items() if family_id in family_ids}
+    return dict(out)
+
+
+def _family_weights(
+    present: Sequence[UUID], counts: Mapping[UUID, int], split_method: str
+) -> dict[UUID, Fraction]:
+    """Weights for a set of families, given how many children each has.
+
+    The counterpart of segment_weights for a context with no children in it —
+    exceptional hours are attributed by who filed, not by the windows. Both must
+    answer "no children anywhere" the same way, an equal split, or the same
+    contract splits its schedule one way and its late nights another.
+    """
+    if split_method == "equal" or not any(counts.get(f) for f in present):
+        return {family_id: Fraction(1) for family_id in present}
+    return {family_id: Fraction(max(1, counts.get(family_id, 0))) for family_id in present}
 
 
 def night_spans(entries: Sequence[ExceptionalEntry]) -> int:
@@ -823,7 +934,10 @@ def apportion(
 
     units = int((total / quantum).to_integral_value(rounding=ROUND_HALF_UP))
     exact = [Fraction(units) * weight / weight_total for weight in weights]
-    floors = [int(value) for value in exact]
+    # floor(), not int(): int() truncates toward zero, so a negative total would
+    # leave `leftover` negative and `order[:leftover]` would silently DROP shares
+    # instead of topping them up, breaking the one invariant this function has.
+    floors = [math.floor(value) for value in exact]
     leftover = units - sum(floors)
     order = sorted(range(len(exact)), key=lambda i: exact[i] - floors[i], reverse=True)
     for index in order[:leftover]:
@@ -842,37 +956,89 @@ def _iso_week(day: date) -> tuple[int, int]:
 def _exceptional_bands(
     data: ContractMonth,
     children: Mapping[UUID, ChildPresence],
-    kind: str,
-    ratio: Fraction,
+    kinds: Mapping[str, Fraction],
 ) -> dict[UUID, Bands]:
-    """Exceptional hours of one kind, banded on top of the week they fall in.
+    """Exceptional hours, banded on top of the contractual week they fall in.
 
     They sit *after* the contractual week, not beside it: an extra evening in a
-    week already at 40h is overtime, and would not be if it were banded on its
-    own from zero.
+    week already at 40h is overtime, and would not be if it were banded on its own
+    from zero. All kinds are banded together for the same reason — an hour of
+    effective work and an hour of présence responsable in the same week stack, so
+    banding each kind from the same anchor would hand out two 25% bands and never
+    reach 50%.
+
+    ``kinds`` maps a kind to what an hour of it is worth in effective hours
+    (présence responsable is two thirds of one).
+
+    Two caveats worth knowing rather than discovering:
+
+    * A week straddling a month boundary is banded from the contractual week in
+      *each* month, because the dataset is month-scoped and cannot see the other
+      half. A Friday-and-Saturday overtime pair split across two declarations may
+      therefore under-band. Fixing it means loading whole ISO weeks, which is a
+      repo-layer change.
+    * Entries are clipped to the month and to the contract's own span, which the
+      base already is via `sub_periods`.
     """
-    by_week: defaultdict[tuple[int, int], list[ExceptionalEntry]] = defaultdict(list)
+    first, last = month_bounds(data.month)
+    start = max(first, data.starting_date)
+    end = min(last, data.ending_date) if data.ending_date else last
+
+    by_week: defaultdict[tuple[int, int], list[tuple[ExceptionalEntry, Fraction]]] = defaultdict(
+        list
+    )
     for entry in data.exceptional:
-        if entry.kind == kind:
-            by_week[_iso_week(entry.start_date)].append(entry)
+        ratio = kinds.get(entry.kind)
+        if ratio is None or not (start <= entry.start_date <= end):
+            continue
+        by_week[_iso_week(entry.start_date)].append((entry, ratio))
 
     out: defaultdict[UUID, Bands] = defaultdict(Bands)
-    for entries in by_week.values():
-        per_family = reconcile_exceptional(entries, children, data.split_method, data.family_ids)
-        total = sum(per_family.values(), Fraction(0)) * ratio
-        if total <= 0:
-            continue
-        schedule = in_force(data.schedules, entries[0].start_date)
+    # Sorted so the result cannot depend on the order rows came back in. Anchoring
+    # on `entries[0]` — as this once did — meant the same data declared different
+    # hours depending on which entry the ORM happened to yield first.
+    for week in sorted(by_week):
+        entries = sorted(by_week[week], key=lambda pair: (pair[0].start_date, pair[0].start_time))
+        anchor_day = entries[0][0].start_date
+        schedule = in_force(data.schedules, anchor_day)
         contractual = (
             band_week(schedule, children, data.split_method, data.family_ids).weekly_minutes
             if schedule
             else 0
         )
-        for band, minutes in allocate_bands(contractual, int(total)):
-            for family_id, family_minutes in per_family.items():
-                share = family_minutes * ratio / total
-                out[family_id] = _add_band(out[family_id], band, Fraction(minutes) * share)
+
+        # Every kind in the week, pooled, so the bands are walked once.
+        per_family: defaultdict[UUID, Fraction] = defaultdict(Fraction)
+        for entry, ratio in entries:
+            split = reconcile_exceptional([entry], children, data.split_method, data.family_ids)
+            for family_id, minutes in split.items():
+                per_family[family_id] += minutes * ratio
+
+        total = sum(per_family.values(), Fraction(0))
+        if total <= 0:
+            continue
+        # Exact: rounding the pooled minutes to an int here would silently drop up
+        # to a minute of présence responsable per week (two thirds of 100 is not
+        # an integer).
+        position = Fraction(contractual)
+        for family_id, family_minutes in per_family.items():
+            share = family_minutes / total
+            for band, minutes in allocate_bands_exact(position, total):
+                out[family_id] = _add_band(out[family_id], band, minutes * share)
     return dict(out)
+
+
+def allocate_bands_exact(start_position: Fraction, minutes: Fraction) -> list[tuple[int, Fraction]]:
+    """:func:`allocate_bands` over exact minutes, for hours that are not whole."""
+    out: list[tuple[int, Fraction]] = []
+    position, left = start_position, minutes
+    while left > 0:
+        band, room = _band_at(int(position))
+        take = left if room is None else min(left, Fraction(room))
+        out.append((band, take))
+        position += take
+        left -= take
+    return out
 
 
 def night_indemnity_ratio(interventions: int) -> Fraction:
@@ -1016,19 +1182,23 @@ def compute_month(data: ContractMonth) -> dict[UUID, FamilyResult]:
         for period, bands in per_period
     ]
 
-    # Exceptional hours are priced at the rate in force when they were worked, so
-    # they ride in their own period rather than being folded into the base.
-    extra = _exceptional_bands(data, children, "effective", Fraction(1))
-    if data.split_method is not None and len(data.family_ids) > 1:
-        # art. 137.1 excludes presence responsable from a garde partagee; the
-        # model rejects new entries, but an older row must not silently pay 2/3.
-        if any(e.kind == "presence_responsable" for e in data.exceptional):
-            warnings.append("presence_responsable_in_shared_care")
-    else:
-        for family_id, bands in _exceptional_bands(
-            data, children, "presence_responsable", PRESENCE_RESPONSABLE_RATIO
-        ).items():
-            extra[family_id] = extra.get(family_id, Bands()) + bands
+    # art. 137.1 excludes presence responsable from a garde partagee. The model
+    # rejects new entries, but a row predating the rule must not quietly pay two
+    # thirds — so on a shared contract it is counted as the effective work it
+    # actually was, and the discrepancy is surfaced.
+    shared = len(data.family_ids) > 1
+    kinds: dict[str, Fraction] = {"effective": Fraction(1)}
+    if shared and any(e.kind == "presence_responsable" for e in data.exceptional):
+        warnings.append("presence_responsable_in_shared_care")
+        kinds["presence_responsable"] = Fraction(1)
+    elif not shared:
+        kinds["presence_responsable"] = PRESENCE_RESPONSABLE_RATIO
+    extra = _exceptional_bands(data, children, kinds)
+
+    # A child there outside their window moves the split without lengthening the
+    # nanny's day, so this nets to zero across the families.
+    for family_id, bands in presence_corrections(data, children).items():
+        extra[family_id] = extra.get(family_id, Bands()) + bands
 
     _, last = month_bounds(data.month)
     current = in_force(data.terms, last) or (data.terms[-1] if data.terms else None)

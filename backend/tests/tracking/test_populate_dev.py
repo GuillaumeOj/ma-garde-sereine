@@ -8,9 +8,13 @@ from tracking.management.commands.populate_dev import DEMO_DOMAIN
 from tracking.models import (
     BankHoliday,
     Contract,
+    ContractChild,
+    ContractChildWindow,
     ContractSchedule,
     ContractShare,
     ContractTerms,
+    ExceptionalHours,
+    ExceptionalPresence,
     Leave,
     MinimumWage,
     Nanny,
@@ -145,9 +149,21 @@ def test_rerunning_resets_rather_than_piles_up():
     assert Nanny.objects.count() == 2
     assert Contract.objects.count() == 3
     assert User.objects.filter(email=f"admin@{DEMO_DOMAIN}").count() == 1
-    # Cascades reached the leaves of the graph, not just the roots.
+    # Cascades reached the leaves of the graph, not just the roots. _flush only
+    # deletes Contract, Nanny and Family; everything below must come with them,
+    # or a re-run doubles it.
     assert ContractShare.objects.count() == 4
     assert Leave.objects.count() == 12
+    demo = f"@{DEMO_DOMAIN}"
+    for model, path in (
+        (ContractChild, "contract__created_by__email__endswith"),
+        (ContractChildWindow, "contract_child__contract__created_by__email__endswith"),
+        (ExceptionalHours, "contract__created_by__email__endswith"),
+        (ExceptionalPresence, "contract__created_by__email__endswith"),
+    ):
+        assert model.objects.count() == model.objects.filter(**{path: demo}).count(), (
+            f"{model.__name__} survived the flush"
+        )
 
 
 def test_leaves_hand_made_local_data_alone(owner, family, contract):
@@ -179,3 +195,48 @@ def test_reports_what_a_rerun_removed(capsys):
     call_command("populate_dev", "--families", "1")
 
     assert "demo account(s) from a previous run" in capsys.readouterr().out
+
+
+def test_the_demo_data_covers_what_the_split_turns_on():
+    """The window cases the split depends on, and the states nobody would
+    otherwise see. A feature the demo dataset never creates is one nobody looks at
+    until it surprises them in production."""
+    call_command("populate_dev", "--families", "2", "--nannies", "2", verbosity=0)
+
+    shared = Contract.objects.filter(split_method=Contract.SplitMethod.BY_CHILDREN).first()
+    assert shared is not None, "no garde partagée to look at"
+    assert Contract.objects.filter(split_method=Contract.SplitMethod.EQUAL).exists()
+
+    # Children are wired to real families, not floating.
+    assert ContractChild.objects.filter(contract=shared).exists()
+    for link in ContractChild.objects.select_related("child").all():
+        assert link.contract.shares.filter(family=link.child.family).exists()
+
+    # Both window shapes: the after-school child, and the child with no Wednesday
+    # window (which is what says "absent", not "unrestricted").
+    assert ContractChildWindow.objects.filter(start_time__hour=16).exists()
+    assert ContractChild.objects.filter(windows__isnull=True).exists(), "no unwindowed child"
+
+    # Every kind worth seeing, plus the reconciliation path.
+    kinds = set(ExceptionalHours.objects.values_list("kind", flat=True))
+    assert ExceptionalHours.Kind.EFFECTIVE in kinds
+    assert ExceptionalHours.Kind.NIGHT_PRESENCE in kinds
+    assert ExceptionalHours.Kind.PRESENCE_RESPONSABLE in kinds
+    assert ExceptionalHours.objects.filter(end_date__gt=models.F("start_date")).exists(), (
+        "no night crossing midnight"
+    )
+    overlapping = ExceptionalHours.objects.filter(contract=shared).values_list(
+        "start_date", flat=True
+    )
+    assert len(overlapping) != len(set(overlapping)), "no two families on the same evening"
+    assert ExceptionalPresence.objects.exists()
+
+
+def test_presence_responsable_never_lands_on_a_shared_contract():
+    """art. 137.1 excludes it from a garde partagée, and the demo data is the
+    first place a forbidden combination would show up."""
+    call_command("populate_dev", "--families", "2", "--nannies", "2", verbosity=0)
+    forbidden = ExceptionalHours.objects.filter(
+        kind=ExceptionalHours.Kind.PRESENCE_RESPONSABLE
+    ).annotate(families=models.Count("contract__shares"))
+    assert not forbidden.filter(families__gt=1).exists()

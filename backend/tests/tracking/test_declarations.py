@@ -692,3 +692,219 @@ def test_the_families_together_always_declare_exactly_what_the_nanny_worked(end_
     declared = sum(r.normal_hours + r.hours_25 + r.hours_50 for r in results.values())
     weekly = (end_hour - 8) * 5 * 60
     assert declared == d.to_hours(d.mensualise(d.Bands(Fraction(weekly))).normal)
+
+
+# --- the sum invariant under adversarial input -------------------------------
+
+
+def test_a_filer_with_no_share_in_the_contract_cannot_delete_minutes():
+    # Filtering after the split would let X dilute the two hours and then be
+    # dropped, paying the nanny for one of them.
+    stray = UUID("cccccccc-0000-0000-0000-000000000003")
+    entries = [
+        d.ExceptionalEntry(
+            FAMILY_A, "effective", date(2026, 7, 14), time(20, 0), date(2026, 7, 14), time(22, 0)
+        ),
+        d.ExceptionalEntry(
+            stray, "effective", date(2026, 7, 14), time(20, 0), date(2026, 7, 14), time(22, 0)
+        ),
+    ]
+    minutes = d.reconcile_exceptional(entries, {}, "equal", [FAMILY_A, FAMILY_B])
+    assert minutes == {FAMILY_A: Fraction(2 * 60)}
+
+
+def test_a_child_of_a_family_not_on_the_contract_is_ignored_not_paid_to_nobody():
+    # All-zero weights would attribute the segment to no one and lose the hours.
+    stray_family = UUID("cccccccc-0000-0000-0000-000000000003")
+    a = child(FAMILY_A)
+    outsider = child(stray_family)
+    children = by_id(a, outsider)
+    weights = d.segment_weights(
+        frozenset({a.child_id, outsider.child_id}), children, "by_children", [FAMILY_A, FAMILY_B]
+    )
+    assert sum(weights.values()) == 1
+    assert weights[FAMILY_A] == 1
+
+
+def test_only_outsider_children_present_falls_back_rather_than_vanishing():
+    stray_family = UUID("cccccccc-0000-0000-0000-000000000003")
+    outsider = child(stray_family)
+    weights = d.segment_weights(
+        frozenset({outsider.child_id}), by_id(outsider), "by_children", [FAMILY_A, FAMILY_B]
+    )
+    assert sum(weights.values()) == 1
+
+
+# --- exceptional hours: determinism and stacking -----------------------------
+
+
+def test_the_declaration_does_not_depend_on_the_order_rows_arrive_in():
+    e1 = d.ExceptionalEntry(
+        FAMILY_A, "effective", date(2026, 7, 14), time(19, 0), date(2026, 7, 14), time(21, 0)
+    )
+    e2 = d.ExceptionalEntry(
+        FAMILY_A, "effective", date(2026, 7, 16), time(19, 0), date(2026, 7, 16), time(21, 0)
+    )
+    forwards = d.compute_month(month(exceptional=(e1, e2)))[FAMILY_A]
+    backwards = d.compute_month(month(exceptional=(e2, e1)))[FAMILY_A]
+    assert forwards.normal_hours == backwards.normal_hours
+    assert forwards.hours_25 == backwards.hours_25
+    assert forwards.hours_50 == backwards.hours_50
+
+
+def test_an_entry_outside_the_month_is_not_paid():
+    away = d.ExceptionalEntry(
+        FAMILY_A, "effective", date(2026, 12, 24), time(19, 0), date(2026, 12, 24), time(23, 0)
+    )
+    plain = d.compute_month(month())[FAMILY_A]
+    result = d.compute_month(month(exceptional=(away,)))[FAMILY_A]
+    assert result.total_amount == plain.total_amount
+
+
+def test_an_entry_after_the_contract_ends_is_not_paid():
+    # The base is clipped to the contract by sub_periods; the exceptional path
+    # used to ignore the span entirely and pay a December evening in July.
+    def ended_contract(exceptional):
+        return d.ContractMonth(
+            month=date(2026, 7, 1),
+            starting_date=date(2026, 1, 5),
+            ending_date=date(2026, 7, 10),
+            split_method="equal",
+            family_ids=(FAMILY_A,),
+            children=(),
+            schedules=(schedule(*[block(i) for i in range(5)]),),
+            terms=(terms(),),
+            exceptional=exceptional,
+        )
+
+    entry = d.ExceptionalEntry(
+        FAMILY_A, "effective", date(2026, 7, 20), time(19, 0), date(2026, 7, 20), time(23, 0)
+    )
+    plain = d.compute_month(ended_contract(()))[FAMILY_A]
+    result = d.compute_month(ended_contract((entry,)))[FAMILY_A]
+    assert result.total_amount == plain.total_amount
+
+
+def test_presence_responsable_on_a_shared_contract_is_paid_in_full_and_flagged():
+    # art. 137.1 excludes it from a garde partagee. A row predating the rule must
+    # not quietly pay two thirds of what is owed.
+    a, b = child(FAMILY_A), child(FAMILY_B)
+    entry = d.ExceptionalEntry(
+        FAMILY_A,
+        "presence_responsable",
+        date(2026, 7, 14),
+        time(19, 0),
+        date(2026, 7, 14),
+        time(22, 0),
+    )
+    results = d.compute_month(
+        month(children=(a, b), families=(FAMILY_A, FAMILY_B), exceptional=(entry,))
+    )
+    assert "presence_responsable_in_shared_care" in results[FAMILY_A].warnings
+    plain = d.compute_month(month(children=(a, b), families=(FAMILY_A, FAMILY_B)))
+    added = sum(
+        results[f].normal_hours + results[f].hours_25 + results[f].hours_50
+        for f in (FAMILY_A, FAMILY_B)
+    ) - sum(
+        plain[f].normal_hours + plain[f].hours_25 + plain[f].hours_50 for f in (FAMILY_A, FAMILY_B)
+    )
+    assert added == Decimal("3.00")  # the full 3h, not 2h
+
+
+def test_apportion_keeps_its_invariant_on_a_negative_total():
+    # int() truncates toward zero; floor() is what keeps the parts summing.
+    parts = d.apportion(Decimal("-10"), [Fraction(1, 3)] * 3)
+    assert sum(parts) == Decimal("-10")
+
+
+# --- exceptional presence: a transfer, not an addition -----------------------
+
+
+def shared_month(**kw):
+    a1 = child(FAMILY_A, child_id=UUID("11111111-0000-0000-0000-000000000001"))
+    a2 = child(
+        FAMILY_A,
+        *[(day, time(16, 30), time(18, 0)) for day in range(5)],
+        child_id=UUID("11111111-0000-0000-0000-000000000002"),
+    )
+    b1 = child(FAMILY_B, child_id=UUID("22222222-0000-0000-0000-000000000001"))
+    return by_id(a1, a2, b1), month(
+        children=(a1, a2, b1), split="by_children", families=(FAMILY_A, FAMILY_B), **kw
+    )
+
+
+def test_an_exceptional_presence_moves_the_split_without_moving_the_hours():
+    # Tom is normally there from 16:30; today he was there from 08:00. The nanny
+    # works exactly the same day — she is already there for the others — so the
+    # month's total cannot move. Only who owes it.
+    children, plain_data = shared_month()
+    tom = UUID("11111111-0000-0000-0000-000000000002")
+    override = d.PresenceOverride(tom, date(2026, 7, 13), time(8, 0), time(16, 30))
+    _, with_data = shared_month(overrides=(override,))
+
+    plain = d.compute_month(plain_data)
+    shifted = d.compute_month(with_data)
+
+    def declared(results):
+        return sum(r.normal_hours + r.hours_25 + r.hours_50 for r in results.values())
+
+    assert declared(shifted) == declared(plain)
+    # Dupont had two children present all that Monday instead of one, so they
+    # carry more of it and Martin less.
+    assert shifted[FAMILY_A].normal_hours > plain[FAMILY_A].normal_hours
+    assert shifted[FAMILY_B].normal_hours < plain[FAMILY_B].normal_hours
+
+
+def test_an_override_applies_to_its_date_and_not_every_matching_weekday():
+    # Matching the child but not the day reads identically and silently repeats a
+    # one-off on every Monday of the month.
+    _, one_monday = shared_month(
+        overrides=(
+            d.PresenceOverride(
+                UUID("11111111-0000-0000-0000-000000000002"),
+                date(2026, 7, 13),
+                time(8, 0),
+                time(16, 30),
+            ),
+        )
+    )
+    _, two_mondays = shared_month(
+        overrides=(
+            d.PresenceOverride(
+                UUID("11111111-0000-0000-0000-000000000002"),
+                date(2026, 7, 13),
+                time(8, 0),
+                time(16, 30),
+            ),
+            d.PresenceOverride(
+                UUID("11111111-0000-0000-0000-000000000002"),
+                date(2026, 7, 20),
+                time(8, 0),
+                time(16, 30),
+            ),
+        )
+    )
+    one = d.compute_month(one_monday)[FAMILY_A].normal_hours
+    two = d.compute_month(two_mondays)[FAMILY_A].normal_hours
+    # Two exceptional Mondays must cost Martin more than one. If the date were
+    # ignored, one override would already have applied to all five and these
+    # would be equal.
+    assert two > one
+
+
+def test_an_override_outside_the_month_changes_nothing():
+    _, plain_data = shared_month()
+    _, away_data = shared_month(
+        overrides=(
+            d.PresenceOverride(
+                UUID("11111111-0000-0000-0000-000000000002"),
+                date(2026, 12, 14),
+                time(8, 0),
+                time(16, 30),
+            ),
+        )
+    )
+    assert (
+        d.compute_month(away_data)[FAMILY_A].normal_hours
+        == d.compute_month(plain_data)[FAMILY_A].normal_hours
+    )
