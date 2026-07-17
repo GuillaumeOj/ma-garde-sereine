@@ -67,8 +67,11 @@ NIGHT_INDEMNITY_FLOOR_RATIO = Decimal("0.25")
 NIGHT_PRESENCE_MAX_MINUTES = 12 * 60
 
 MONTHS_PER_YEAR = 12
-#: A full year: 47 worked weeks + 5 of paid leave.
-DEFAULT_WEEKS_PER_YEAR = 52
+#: art. 146.1 mensualises a regular week on x 52, flat: 47 worked weeks + 5 of
+#: paid leave. Not a variable — an *irregular* schedule is not mensualised at all
+#: (art. 146.2, paid on the hours actually worked), which is a mode this module
+#: does not implement rather than a different week count.
+WEEKS_PER_YEAR = 52
 
 #: Only unpaid leave deducts; paid leave is already inside the mensualised base.
 DEDUCTING_LEAVE_TYPES = frozenset({"unpaid"})
@@ -127,8 +130,9 @@ class Block:
 
 @dataclass(frozen=True, slots=True)
 class Schedule:
+    """The nanny's week, shared by every family on the contract."""
+
     effective_from: date
-    weeks_per_year: int
     blocks: tuple[Block, ...]
 
 
@@ -460,11 +464,6 @@ def segment_weights(
     return {family_id: shares.get(family_id, Fraction(0)) for family_id in family_ids}
 
 
-def is_uncovered(present: frozenset[UUID], children: Mapping[UUID, ChildPresence]) -> bool:
-    """True when a segment has no child on the contract in it (see above)."""
-    return not any(child_id in children for child_id in present)
-
-
 # --- banding -----------------------------------------------------------------
 
 
@@ -560,9 +559,13 @@ def band_week(
 # --- mensualisation ----------------------------------------------------------
 
 
-def mensualise(bands: Bands, weeks_per_year: int, day_weight: Fraction = Fraction(1)) -> Bands:
-    """A week's bands as a month's, weighted by the sub-period's share of the month."""
-    return bands.scaled(Fraction(weeks_per_year, MONTHS_PER_YEAR) * day_weight)
+def mensualise(bands: Bands, day_weight: Fraction = Fraction(1)) -> Bands:
+    """A week's bands as a month's, weighted by the sub-period's share of the month.
+
+    art. 146.1: hebdomadaire x 52 / 12. `day_weight` is the sub-period's share of
+    the calendar month, so a mid-month avenant reprices without inventing hours.
+    """
+    return bands.scaled(Fraction(WEEKS_PER_YEAR, MONTHS_PER_YEAR) * day_weight)
 
 
 def in_force(snapshots: Sequence[Schedule | Terms], on: date):
@@ -620,21 +623,30 @@ def portion_fraction(leave: LeaveSpan, day_minutes: int) -> Fraction:
     if leave.hours is None or day_minutes == 0:
         return Fraction(0)
     # An hourly leave's `hours` is per day: a three-day leave of 2h is 2h off
-    # each of them. Its bands come off in the same mix as the day's own, which
-    # is exact whenever the day sits in one band — i.e. nearly always.
+    # each of them.
     wanted = Fraction(leave.hours) * MINUTES_PER_HOUR
     return min(Fraction(1), wanted / day_minutes)
 
 
-def leave_deduction(data: ContractMonth, banded: Mapping[date, WeekBands]) -> dict[UUID, Bands]:
-    """Mensualised minutes each family does not owe, because the nanny was off.
+def month_attendance(
+    data: ContractMonth, banded: Mapping[date, WeekBands]
+) -> dict[UUID, tuple[Fraction, Fraction]]:
+    """Per family: minutes they would have had this month, and minutes they got.
 
-    Walked per *date*, never per leave: each date resolves its own weekday and
-    its own schedule snapshot. A leave on a day the nanny does not work deducts
-    nothing, and so does paid leave — it is already inside the base.
+    Both walked per *date*, never per leave: each date resolves its own weekday
+    and its own schedule snapshot. A leave on a day the nanny does not work costs
+    nothing, and neither does paid leave — it is already inside the base.
     """
     first, last = month_bounds(data.month)
-    out: defaultdict[UUID, Bands] = defaultdict(Bands)
+    planned: defaultdict[UUID, Fraction] = defaultdict(Fraction)
+    absent: defaultdict[UUID, Fraction] = defaultdict(Fraction)
+
+    for day in days_between(first, last):
+        week = banded.get(day)
+        if week is None:
+            continue
+        for family_id, bands in week.by_weekday.get(day.weekday(), {}).items():
+            planned[family_id] += bands.total
 
     for leave in data.leaves:
         if leave.leave_type not in DEDUCTING_LEAVE_TYPES:
@@ -649,13 +661,35 @@ def leave_deduction(data: ContractMonth, banded: Mapping[date, WeekBands]) -> di
             share = portion_fraction(leave, day_minutes)
             if not share:
                 continue
-            # The day's bands are one week's worth; the base pays 52/12 of a week
-            # per month, so a real day off is worth a real day, not a mensualised
-            # one. Deduct the day itself.
             for family_id, bands in week.by_weekday.get(day.weekday(), {}).items():
-                out[family_id] = out[family_id] + bands.scaled(share)
+                absent[family_id] += bands.total * share
 
-    return dict(out)
+    return {
+        family_id: (planned[family_id], max(Fraction(0), planned[family_id] - absent[family_id]))
+        for family_id in planned
+    }
+
+
+def attendance_ratio(planned: Fraction, worked: Fraction) -> Fraction:
+    """The « heures réelles » ratio of CCN 3239 art. 152.1.
+
+    The convention prescribes a *ratio*, not a subtraction:
+
+        salaire mensualisé × heures réellement effectuées dans le mois
+                           ÷ heures qui auraient dû être réellement travaillées
+
+    That shape is the point. Subtracting a real day's hours from a smoothed base
+    mixes two clocks and breaks in short months: February has 20 working days
+    against a base built on an average of 21.7, so a nanny absent *every day of
+    February* still had 13.33h left on her declaration. A ratio cannot do that —
+    absent all month, the numerator is zero and so is the pay.
+
+    It also self-corrects the other way: a 23-weekday month deducts proportionally
+    less per day, which is exactly the smoothing mensualisation exists for.
+    """
+    if planned <= 0:
+        return Fraction(1)
+    return min(Fraction(1), worked / planned)
 
 
 # --- exceptional hours -------------------------------------------------------
@@ -780,16 +814,6 @@ def apportion(
     return [Decimal(count) * quantum for count in floors]
 
 
-def amount(bands: Bands, rate: Decimal) -> Decimal:
-    """What a set of banded hours is worth at `rate`."""
-    return _quantize(
-        to_hours(bands.normal) * rate
-        + to_hours(bands.at_25) * rate * MAJORATION_25
-        + to_hours(bands.at_50) * rate * MAJORATION_50,
-        MONEY_QUANTUM,
-    )
-
-
 # --- the whole month ---------------------------------------------------------
 
 
@@ -836,11 +860,24 @@ def _exceptional_bands(
 
 def _night_indemnity(
     data: ContractMonth, children: Mapping[UUID, ChildPresence], terms: Terms | None
-) -> tuple[dict[UUID, Decimal], int, list[str]]:
-    """Présence de nuit: a flat indemnity per hour, never banded hours."""
+) -> tuple[dict[UUID, Decimal], dict[UUID, int], list[str]]:
+    """Présence de nuit: an indemnity, never banded hours.
+
+    URSSAF: "rémunérées par une indemnité forfaitaire dont le montant ne peut être
+    inférieur à un quart du salaire contractuel versé pour une durée de travail
+    effectif équivalente". The floor is expressed *per equivalent hour*, so the
+    indemnity is priced per hour here — but note the model contract quotes it
+    "... € brut par nuit". Where a contract agrees a flat per-night forfait, this
+    is the wrong unit and would multiply it by the hours; the per-night mode is
+    not implemented. Guarded by the floor warning, which is the only figure
+    URSSAF actually binds.
+
+    The count is per family, not global: a family that filed nothing must not be
+    told it has nights to declare.
+    """
     entries = [e for e in data.exceptional if e.kind == "night_presence"]
     if not entries or terms is None:
-        return {}, 0, []
+        return {}, {}, []
 
     warnings: list[str] = []
     floor = _quantize(terms.net_hourly_rate * NIGHT_INDEMNITY_FLOOR_RATIO, MONEY_QUANTUM)
@@ -856,25 +893,38 @@ def _night_indemnity(
         warnings.append("night_presence_longer_than_12h")
 
     per_family = reconcile_exceptional(entries, children, data.split_method, data.family_ids)
+    counts: defaultdict[UUID, set[date]] = defaultdict(set)
+    for entry in entries:
+        counts[entry.family_id].add(entry.start_date)
+
     amounts = {
         family_id: _quantize(to_hours(minutes) * rate, MONEY_QUANTUM)
         for family_id, minutes in per_family.items()
     }
-    return amounts, night_spans(entries), warnings
+    nights = {
+        family_id: len(counts.get(family_id, set()))
+        for family_id in data.family_ids
+        if counts.get(family_id)
+    }
+    return amounts, nights, warnings
 
 
 def compute_month(data: ContractMonth) -> dict[UUID, FamilyResult]:
     """One month of one contract, as each family must declare it.
 
-    Base (banded then split then mensualised), minus unpaid leave, plus
-    exceptional hours; advantages shared by each family's weight in the month;
-    everything rounded once, at the end, so the parts still sum to the whole.
+    The nanny's week is banded, each band split between the families, mensualised,
+    prorated by attendance (art. 152.1), and topped up with exceptional hours.
+    Advantages follow each family's weight in the month. Everything is rounded
+    once, at the end, so the parts still sum to the whole.
     """
     children = {child.child_id: child for child in data.children}
     periods = sub_periods(data)
     warnings: list[str] = []
 
-    base: defaultdict[UUID, Bands] = defaultdict(Bands)
+    # Base, per sub-period, kept separate so each keeps its own rate. Collapsing
+    # them early is what made a mid-month raise price the whole month at the new
+    # rate — the figure the parent cannot reproduce.
+    per_period: list[tuple[SubPeriod, dict[UUID, Bands]]] = []
     banded_by_date: dict[date, WeekBands] = {}
     rate_periods: list[dict] = []
 
@@ -884,10 +934,9 @@ def compute_month(data: ContractMonth) -> dict[UUID, FamilyResult]:
         week = band_week(period.schedule, children, data.split_method, data.family_ids)
         for day in days_between(period.start, period.end):
             banded_by_date[day] = week
-        for family_id, bands in week.total.items():
-            base[family_id] = base[family_id] + mensualise(
-                bands, period.schedule.weeks_per_year, period.weight
-            )
+        per_period.append(
+            (period, {f: mensualise(b, period.weight) for f, b in week.total.items()})
+        )
         if period.terms is not None:
             rate_periods.append(
                 {
@@ -899,36 +948,56 @@ def compute_month(data: ContractMonth) -> dict[UUID, FamilyResult]:
                     "transport_fee": str(period.terms.transport_fee),
                     "mileage_rate": str(period.terms.mileage_rate),
                     "benefits_in_kind": str(period.terms.benefits_in_kind),
-                    "weeks_per_year": period.schedule.weeks_per_year,
                 }
             )
 
     if len({p["net_hourly_rate"] for p in rate_periods}) > 1:
-        # Then total != hours × rate, and the flat rate the UI shows cannot
-        # reproduce the figure on its own. Say so rather than let it look wrong.
         warnings.append("rates_changed_mid_month")
+    if not any(child.family_id in data.family_ids for child in data.children):
+        # The equal-split fallback is about to carry the whole month. Correct, and
+        # the status quo for a contract that predates the children — but say so
+        # rather than let it read as a split derived from who was actually there.
+        warnings.append("split_without_children")
 
-    for family_id, bands in leave_deduction(data, banded_by_date).items():
-        base[family_id] = (base[family_id] - bands).clamped()
+    # art. 152.1: prorate by attendance, do not subtract raw hours. See
+    # attendance_ratio for why the shape matters.
+    attendance = month_attendance(data, banded_by_date)
+    ratios = {
+        family_id: attendance_ratio(*attendance.get(family_id, (Fraction(0), Fraction(0))))
+        for family_id in data.family_ids
+    }
+    per_period = [
+        (period, {f: b.scaled(ratios.get(f, Fraction(1))) for f, b in bands.items()})
+        for period, bands in per_period
+    ]
 
-    for family_id, bands in _exceptional_bands(data, children, "effective", Fraction(1)).items():
-        base[family_id] = base[family_id] + bands
-    for family_id, bands in _exceptional_bands(
-        data, children, "presence_responsable", PRESENCE_RESPONSABLE_RATIO
-    ).items():
-        base[family_id] = base[family_id] + bands
+    # Exceptional hours are priced at the rate in force when they were worked, so
+    # they ride in their own period rather than being folded into the base.
+    extra = _exceptional_bands(data, children, "effective", Fraction(1))
+    if data.split_method is not None and len(data.family_ids) > 1:
+        # art. 137.1 excludes presence responsable from a garde partagee; the
+        # model rejects new entries, but an older row must not silently pay 2/3.
+        if any(e.kind == "presence_responsable" for e in data.exceptional):
+            warnings.append("presence_responsable_in_shared_care")
+    else:
+        for family_id, bands in _exceptional_bands(
+            data, children, "presence_responsable", PRESENCE_RESPONSABLE_RATIO
+        ).items():
+            extra[family_id] = extra.get(family_id, Bands()) + bands
 
-    # The terms in force on the month's last day: what the UI shows, and the
-    # whole story whenever the month has a single snapshot, which is nearly always.
     _, last = month_bounds(data.month)
     current = in_force(data.terms, last) or (data.terms[-1] if data.terms else None)
-    nights, night_count, night_warnings = _night_indemnity(data, children, current)
+    nights, nights_by_family, night_warnings = _night_indemnity(data, children, current)
     warnings += night_warnings
 
-    # Advantages are one monthly lump for one nanny, so they follow each family's
-    # weight in the month rather than being declared whole by each — otherwise
-    # she is credited a multiple of what was agreed.
-    weights = [base[family_id].total for family_id in data.family_ids]
+    totals: dict[UUID, Bands] = {}
+    for family_id in data.family_ids:
+        combined = Bands()
+        for _period, bands in per_period:
+            combined = combined + bands.get(family_id, Bands())
+        totals[family_id] = (combined + extra.get(family_id, Bands())).clamped()
+
+    weights = [totals[family_id].total for family_id in data.family_ids]
     kilometers = data.kilometers or {}
     rate = current.net_hourly_rate if current else Decimal("0")
     transport = apportion(
@@ -941,15 +1010,13 @@ def compute_month(data: ContractMonth) -> dict[UUID, FamilyResult]:
     # Round each band ACROSS the families, not each family's bands on their own.
     # Rounding per family loses the nanny a centihour on every band that does not
     # divide cleanly: two families sharing a 216.67h month would declare 108.33
-    # each and the last one would simply never be worked by anybody. Apportioning
-    # per band keeps every band's parts summing to the band, and therefore every
-    # family's total summing to the month.
+    # each and the last one would simply never be worked by anybody.
     hours_by_band = [
         apportion(to_hours(sum(column, Fraction(0))), column)
         for column in (
-            [base[family_id].normal for family_id in data.family_ids],
-            [base[family_id].at_25 for family_id in data.family_ids],
-            [base[family_id].at_50 for family_id in data.family_ids],
+            [totals[family_id].normal for family_id in data.family_ids],
+            [totals[family_id].at_25 for family_id in data.family_ids],
+            [totals[family_id].at_50 for family_id in data.family_ids],
         )
     ]
 
@@ -958,28 +1025,25 @@ def compute_month(data: ContractMonth) -> dict[UUID, FamilyResult]:
         normal_hours, hours_25, hours_50 = (band[index] for band in hours_by_band)
         km = kilometers.get(family_id, Decimal("0"))
         mileage_rate = current.mileage_rate if current else Decimal("0")
-        mileage = _quantize(km * mileage_rate, MONEY_QUANTUM)
         night = nights.get(family_id, Decimal("0"))
-        # Priced from the *rounded* hours, so the total is the one a parent gets
-        # back when they retype these three numbers into pajemploi.
+        # Priced per sub-period, each at its own rate, so a mid-month avenant is
+        # charged for the days it actually applied to. With one period — nearly
+        # always — this is exactly hours x rate, which is what pajemploi asks the
+        # parent to type: "Additionnez le nombre d'heures normales x taux horaire
+        # net + le nombre d'heures supplementaires a 25% x le taux majore a 25%".
+        salary = _period_amount(per_period, extra, family_id, current)
         results[family_id] = FamilyResult(
             family_id=family_id,
             normal_hours=normal_hours,
             hours_25=hours_25,
             hours_50=hours_50,
-            night_count=night_count,
+            night_count=nights_by_family.get(family_id, 0),
             night_indemnity=night,
             transport_amount=transport[index],
             benefits_in_kind_amount=in_kind[index],
             kilometers=km,
-            mileage_amount=mileage,
-            total_amount=_quantize(
-                normal_hours * rate
-                + hours_25 * rate * MAJORATION_25
-                + hours_50 * rate * MAJORATION_50
-                + night,
-                MONEY_QUANTUM,
-            ),
+            mileage_amount=_quantize(km * mileage_rate, MONEY_QUANTUM),
+            total_amount=_quantize(salary + night, MONEY_QUANTUM),
             net_hourly_rate=rate,
             night_presence_rate=current.night_presence_rate if current else Decimal("0"),
             mileage_rate=mileage_rate,
@@ -987,3 +1051,29 @@ def compute_month(data: ContractMonth) -> dict[UUID, FamilyResult]:
             warnings=tuple(warnings),
         )
     return results
+
+
+def _period_amount(
+    per_period: Sequence[tuple[SubPeriod, Mapping[UUID, Bands]]],
+    extra: Mapping[UUID, Bands],
+    family_id: UUID,
+    current: Terms | None,
+) -> Decimal:
+    """A family's salary, each sub-period priced at the rate in force then."""
+    total = Decimal("0")
+    for period, bands in per_period:
+        terms = period.terms or current
+        if terms is None:
+            continue
+        total += _price(bands.get(family_id, Bands()), terms.net_hourly_rate)
+    if current is not None:
+        total += _price(extra.get(family_id, Bands()), current.net_hourly_rate)
+    return _quantize(total, MONEY_QUANTUM)
+
+
+def _price(bands: Bands, rate: Decimal) -> Decimal:
+    return (
+        to_hours(bands.normal) * rate
+        + to_hours(bands.at_25) * rate * MAJORATION_25
+        + to_hours(bands.at_50) * rate * MAJORATION_50
+    )

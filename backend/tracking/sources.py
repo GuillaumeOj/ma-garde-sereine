@@ -157,7 +157,10 @@ PRESENCE_RESPONSABLE_SHARED_CARE = Source(
         f"{CCN}/socle-salarie-du-particulier-employeur/article-137-1-heures-de-presence"
         "-responsable-de-jour/"
     ),
-    quote="Les heures de présence responsable de jour sont exclues dans le cadre de la garde partagée.",
+    quote=(
+        "Les heures de présence responsable de jour sont exclues dans le cadre de la "
+        "garde partagée."
+    ),
 )
 
 PRESENCE_RESPONSABLE = Source(

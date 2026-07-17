@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, time
 from decimal import Decimal
 from typing import TYPE_CHECKING, ClassVar
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.core.validators import MaxValueValidator, MinValueValidator
+from django.core.validators import MinValueValidator
 from django.db import models, transaction
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -285,18 +285,21 @@ class ContractSchedule(UUIDModel):
 
     Editing the schedule creates a NEW row (with its own blocks) rather than
     mutating the previous one, preserving the full history.
+
+    The week here is the *nanny's*, shared by every family on the contract — not
+    one family's slice of it. CCN 3239 art. 144.2 divides "les heures de travail
+    du salarié" by a répartition the contracts agree, so the hours have to exist
+    as one pool before anything can divide them. It is also what the overtime
+    bands are counted against.
+
+    There is no weeks-per-year: art. 146.1 mensualises a regular week on × 52,
+    full stop. A genuinely *irregular* schedule is not mensualised at all
+    (art. 146.2 — paid on the hours actually worked), which this model cannot
+    express yet. See ``docs/shared-care-pay.md``.
     """
 
     contract = models.ForeignKey(Contract, on_delete=models.CASCADE, related_name="schedules")
     effective_from = models.DateField(default=timezone.localdate)
-    # Weeks of this shape per year, the second operand of the mensualisation
-    # (weekly hours × weeks_per_year ÷ 12). 52 is a full year — 47 worked plus 5
-    # of paid leave; an "année incomplète" agrees its own count. It lives on the
-    # schedule rather than the terms so both operands of that product resolve
-    # from one snapshot, cut on one effective_from.
-    weeks_per_year = models.PositiveSmallIntegerField(
-        default=52, validators=[MinValueValidator(1), MaxValueValidator(53)]
-    )
     # Set when corrected in place (see ContractTerms.edited).
     edited = models.BooleanField(default=False)
 
@@ -549,6 +552,19 @@ class BankHoliday(UUIDModel):
         return f"{self.name} ({self.date})"
 
 
+def _within_night_window(start: time, end: time) -> bool:
+    """Is a span inside the 20:00–06:30 présence de nuit window?
+
+    The window wraps midnight, so "inside" means starting at or after 20:00, or
+    ending by 06:30, or both. Widened by the 1h30 the parties may shift it by
+    (art. 137.2) — the exact contractual window is not modelled, so this only
+    catches an entry that is plainly daytime.
+    """
+    latest_start = time(18, 30)  # 20:00 brought forward by the full 1h30
+    earliest_end = time(8, 0)  # 06:30 pushed back by the full 1h30
+    return start >= latest_start or end <= earliest_end
+
+
 class ExceptionalHours(UUIDModel):
     """Hours the nanny worked **beyond** the schedule, on one family's account.
 
@@ -575,6 +591,15 @@ class ExceptionalHours(UUIDModel):
         EFFECTIVE = "effective", _("Effective work")
         PRESENCE_RESPONSABLE = "presence_responsable", _("Responsible presence")
         NIGHT_PRESENCE = "night_presence", _("Night presence")
+
+    #: Kinds a shared contract may not use. Présence responsable pays two thirds
+    #: of an effective hour, and CCN 3239 art. 137.1 opens by excluding it from a
+    #: garde partagée outright — so on a shared contract it is not a cheaper way
+    #: to book an hour, it is an underpayment. URSSAF's own page lists it under
+    #: "garde d'enfants à domicile" without the caveat because that page
+    #: describes the job; the exclusion is a garde partagée rule. Allowed on a
+    #: solo contract, hence a gate rather than a removal.
+    SHARED_CARE_FORBIDDEN_KINDS: ClassVar[set[str]] = {Kind.PRESENCE_RESPONSABLE}
 
     contract = models.ForeignKey(
         Contract, on_delete=models.CASCADE, related_name="exceptional_hours"
@@ -624,10 +649,33 @@ class ExceptionalHours(UUIDModel):
         if self.contract_id and self.family_id:
             if not self.contract.shares.filter(family_id=self.family_id).exists():
                 raise ValidationError({"family": _("This family does not share this contract.")})
+        if self.contract_id and self.kind in self.SHARED_CARE_FORBIDDEN_KINDS:
+            if self.contract.shares.count() > 1:
+                raise ValidationError(
+                    {
+                        "kind": _(
+                            "Responsible presence hours are excluded in a shared care "
+                            "arrangement (CCN 3239, art. 137.1). Record them as effective work."
+                        )
+                    }
+                )
         if self.start_date and self.end_date and self.end_date < self.start_date:
             raise ValidationError(
                 {"end_date": _("The ending date cannot be before the starting date.")}
             )
+        if self.kind == self.Kind.NIGHT_PRESENCE and self.start_time and self.end_time:
+            # The window is 20:00-06:30, which the parties may shift by up to
+            # 1h30 in total (art. 137.2), so this is a soft outer bound rather
+            # than the exact contractual window — which is not modelled yet.
+            if not _within_night_window(self.start_time, self.end_time):
+                raise ValidationError(
+                    {
+                        "start_time": _(
+                            "Night presence runs between 20:00 and 06:30. Record daytime "
+                            "hours as effective work."
+                        )
+                    }
+                )
 
 
 class ExceptionalPresence(UUIDModel):

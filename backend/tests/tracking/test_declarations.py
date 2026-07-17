@@ -35,10 +35,8 @@ def block(weekday=MONDAY, start=time(8, 0), end=time(18, 0)):
     return d.Block(weekday=weekday, start=start, end=end)
 
 
-def schedule(*blocks, weeks_per_year=52, effective_from=date(2026, 1, 1)):
-    return d.Schedule(
-        effective_from=effective_from, weeks_per_year=weeks_per_year, blocks=tuple(blocks)
-    )
+def schedule(*blocks, effective_from=date(2026, 1, 1)):
+    return d.Schedule(effective_from=effective_from, blocks=tuple(blocks))
 
 
 def terms(rate="12.00", effective_from=date(2026, 1, 1), **kwargs):
@@ -229,13 +227,10 @@ def test_a_week_under_the_threshold_is_all_normal():
 
 
 def test_mensualisation_spreads_the_week_over_twelve_months():
+    # art. 146.1: hebdomadaire x 52 / 12. 52 is flat — there is no annee
+    # incomplete for a garde d'enfants a domicile.
     bands = d.Bands(normal=Fraction(40 * 60))
-    assert d.to_hours(d.mensualise(bands, 52).normal) == Decimal("173.33")
-
-
-def test_an_incomplete_year_mensualises_on_its_own_week_count():
-    bands = d.Bands(normal=Fraction(40 * 60))
-    assert d.to_hours(d.mensualise(bands, 47).normal) == Decimal("156.67")
+    assert d.to_hours(d.mensualise(bands).normal) == Decimal("173.33")
 
 
 # --- sub-periods -------------------------------------------------------------
@@ -426,7 +421,7 @@ def test_a_shared_month_never_declares_more_hours_than_the_nanny_worked():
     )
     declared = sum(r.normal_hours + r.hours_25 + r.hours_50 for r in results.values())
     # 10h x 5 = 50h/week -> 40 normal + 8 at 25% + 2 at 50%, mensualised.
-    worked = d.to_hours(d.mensualise(d.Bands(Fraction(50 * 60)), 52).normal)
+    worked = d.to_hours(d.mensualise(d.Bands(Fraction(50 * 60))).normal)
     assert declared == worked
     # A carries more than B, because A's second child is there after school.
     assert results[FAMILY_A].normal_hours > results[FAMILY_B].normal_hours
@@ -443,12 +438,19 @@ def test_the_overtime_bands_survive_the_split():
     assert results[FAMILY_B].hours_25 > 0
 
 
-def test_unpaid_leave_deducts_the_hours_that_day_was_worth():
+def test_unpaid_leave_prorates_the_month_rather_than_subtracting_the_day():
+    # art. 152.1's "heures reelles": salaire mensualise x heures reellement
+    # effectuees / heures qui auraient du l'etre. July 2026 has 23 working days,
+    # so a planned 184h; one 8h day off leaves 176/184 of a 173.33h base = 165.80.
+    # Subtracting the day's 8h outright would give 165.33 — close enough to look
+    # right, and wrong in a way that compounds into February declaring hours for a
+    # month worked none of.
     blocks = [block(day, time(9, 0), time(17, 0)) for day in range(5)]
     leave = d.LeaveSpan("unpaid", date(2026, 7, 13), date(2026, 7, 13), "full_day")
     without = d.compute_month(month(schedules=(schedule(*blocks),)))[FAMILY_A]
     with_leave = d.compute_month(month(schedules=(schedule(*blocks),), leaves=(leave,)))[FAMILY_A]
-    assert without.normal_hours - with_leave.normal_hours == Decimal("8.00")
+    assert without.normal_hours == Decimal("173.33")
+    assert with_leave.normal_hours == Decimal("165.80")
 
 
 def test_paid_leave_deducts_nothing_because_the_base_already_holds_it():
@@ -467,11 +469,33 @@ def test_leave_on_a_day_the_nanny_never_works_deducts_nothing():
     assert with_leave.normal_hours == without.normal_hours
 
 
-def test_a_month_of_unpaid_leave_deducts_to_zero_and_no_further():
-    leave = d.LeaveSpan("unpaid", date(2026, 7, 1), date(2026, 7, 31), "full_day")
-    result = d.compute_month(month(leaves=(leave,)))[FAMILY_A]
-    assert result.normal_hours >= 0
-    assert result.total_amount >= 0
+@pytest.mark.parametrize(
+    "first,last",
+    [
+        (date(2026, 2, 1), date(2026, 2, 28)),  # 20 working days — fewer than the 21.7 average
+        (date(2026, 7, 1), date(2026, 7, 31)),  # 23 working days — more
+    ],
+)
+def test_a_month_of_unpaid_leave_is_worth_nothing_whatever_the_month(first, last):
+    # art. 152.1 is a ratio, not a subtraction, and this is why. Subtracting the
+    # real hours of a short month from a smoothed base left 13.33h on February's
+    # declaration for a nanny who worked none of it. Asserting ">= 0" — as this
+    # test first did — passes on that, and on a deduction that does nothing at all.
+    leave = d.LeaveSpan("unpaid", first, last, "full_day")
+    data = d.ContractMonth(
+        month=first,
+        starting_date=date(2026, 1, 5),
+        ending_date=None,
+        split_method="equal",
+        family_ids=(FAMILY_A,),
+        children=(),
+        schedules=(schedule(*[block(i, time(9, 0), time(17, 0)) for i in range(5)]),),
+        terms=(terms(),),
+        leaves=(leave,),
+    )
+    result = d.compute_month(data)[FAMILY_A]
+    assert result.normal_hours == Decimal("0")
+    assert result.total_amount == Decimal("0")
 
 
 def test_exceptional_hours_add_to_the_month():
@@ -546,6 +570,13 @@ def test_a_mid_month_raise_changes_the_price_but_not_the_hours():
         month(terms_=(terms("12.00"), terms("13.00", effective_from=date(2026, 7, 16))))
     )[FAMILY_A]
     assert raised.normal_hours == flat.normal_hours
+    # This assertion is the point of the test and was missing, which is how the
+    # whole month came to be priced at the last day's rate. 15 days at 12.00 and
+    # 16 at 13.00 lands strictly between the two flat months, and nowhere near
+    # either.
+    at_old = d.compute_month(month())[FAMILY_A].total_amount
+    at_new = d.compute_month(month(terms_=(terms("13.00"),)))[FAMILY_A].total_amount
+    assert at_old < raised.total_amount < at_new
 
 
 def test_a_month_with_no_schedule_yields_zeroes_rather_than_an_error():
@@ -581,4 +612,4 @@ def test_the_families_together_always_declare_exactly_what_the_nanny_worked(end_
     )
     declared = sum(r.normal_hours + r.hours_25 + r.hours_50 for r in results.values())
     weekly = (end_hour - 8) * 5 * 60
-    assert declared == d.to_hours(d.mensualise(d.Bands(Fraction(weekly)), 52).normal)
+    assert declared == d.to_hours(d.mensualise(d.Bands(Fraction(weekly))).normal)
