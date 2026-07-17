@@ -59,12 +59,27 @@ MAJORATION_50 = Decimal("1.50")
 #: Exact on purpose — Decimal("0.667") leaks a third of a cent per hour.
 PRESENCE_RESPONSABLE_RATIO = Fraction(2, 3)
 
-#: "Présence de nuit" runs 20:00–06:30 and is paid as a flat indemnity, not as
-#: hours. URSSAF sets only a floor: a quarter of the contractual rate.
+#: "Présence de nuit" runs 20:00–06:30. It is paid as an indemnity rather than as
+#: worked hours — it does not count toward the 40h week — but it is priced BY THE
+#: HOUR, not as a fixed sum per night. Art. 137.2 leaves no room: every tier is a
+#: fraction "du salaire contractuel versé pour une durée de travail effectif
+#: ÉQUIVALENTE", i.e. of what those same hours of real work would have paid.
+#: "Forfaitaire" means "not working time", not "flat".
 NIGHT_PRESENCE_START = time(20, 0)
 NIGHT_PRESENCE_END = time(6, 30)
-NIGHT_INDEMNITY_FLOOR_RATIO = Decimal("0.25")
 NIGHT_PRESENCE_MAX_MINUTES = 12 * 60
+
+#: The floor for an undisturbed night: a quarter of the equivalent salary.
+NIGHT_INDEMNITY_FLOOR_RATIO = Fraction(1, 4)
+#: From the SECOND intervention the indemnity "est portée à" a third — an
+#: obligation, not a floor. A nanny up twice is owed a third more.
+NIGHT_INDEMNITY_DISTURBED_RATIO = Fraction(1, 3)
+NIGHT_INTERVENTIONS_DISTURBED = 2
+#: At four, the interventions themselves are paid as full effective work, and if
+#: EVERY night reaches four the presence is requalified outright. Neither is
+#: computable from a bare count — the interventions' durations are not recorded —
+#: so both raise a warning rather than a wrong number.
+NIGHT_INTERVENTIONS_FULL_RATE = 4
 
 MONTHS_PER_YEAR = 12
 #: art. 146.1 mensualises a regular week on x 52, flat: 47 worked weeks + 5 of
@@ -167,6 +182,8 @@ class ExceptionalEntry:
     start_time: time
     end_date: date
     end_time: time
+    #: Times the nanny was woken. Prices the night; see night_indemnity_ratio.
+    interventions: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -858,55 +875,83 @@ def _exceptional_bands(
     return dict(out)
 
 
+def night_indemnity_ratio(interventions: int) -> Fraction:
+    """The fraction of an equivalent hour's pay a night is worth (art. 137.2)."""
+    if interventions >= NIGHT_INTERVENTIONS_DISTURBED:
+        return NIGHT_INDEMNITY_DISTURBED_RATIO
+    return NIGHT_INDEMNITY_FLOOR_RATIO
+
+
 def _night_indemnity(
     data: ContractMonth, children: Mapping[UUID, ChildPresence], terms: Terms | None
 ) -> tuple[dict[UUID, Decimal], dict[UUID, int], list[str]]:
-    """Présence de nuit: an indemnity, never banded hours.
+    """Présence de nuit: an indemnity, priced by the hour, never banded hours.
 
-    URSSAF: "rémunérées par une indemnité forfaitaire dont le montant ne peut être
-    inférieur à un quart du salaire contractuel versé pour une durée de travail
-    effectif équivalente". The floor is expressed *per equivalent hour*, so the
-    indemnity is priced per hour here — but note the model contract quotes it
-    "... € brut par nuit". Where a contract agrees a flat per-night forfait, this
-    is the wrong unit and would multiply it by the hours; the per-night mode is
-    not implemented. Guarded by the floor warning, which is the only figure
-    URSSAF actually binds.
+    Art. 137.2 prices every tier as a fraction "du salaire contractuel versé pour
+    une durée de travail effectif équivalente" — of what those hours of real work
+    would have paid. So the unit is the hour and a longer night costs more; a
+    contract quoting a flat "x € par nuit" expresses the same thing for its own
+    expected duration, not a different rule.
 
-    The count is per family, not global: a family that filed nothing must not be
-    told it has nights to declare.
+    The rate is the better of what the parties agreed and what the article
+    requires, resolved PER NIGHT: a night the nanny was woken twice is owed a
+    third rather than a quarter, and that is an obligation ("est portée à"), not
+    a floor to warn about.
+
+    Two cases warn instead of returning a number. From four interventions the
+    interventions themselves are paid as full effective work, and if every night
+    reaches four the presence must be requalified and the contract revised.
+    Neither is computable without the interventions' durations, which nothing
+    records.
     """
     entries = [e for e in data.exceptional if e.kind == "night_presence"]
     if not entries or terms is None:
         return {}, {}, []
 
     warnings: list[str] = []
-    floor = _quantize(terms.net_hourly_rate * NIGHT_INDEMNITY_FLOOR_RATIO, MONEY_QUANTUM)
-    rate = terms.night_presence_rate
-    if rate < floor:
-        # Soft, like the minimum-wage check: flag it, do not block the month.
-        warnings.append("night_presence_rate_below_floor")
     if any(
         _absolute(e.end_date, e.end_time) - _absolute(e.start_date, e.start_time)
         > NIGHT_PRESENCE_MAX_MINUTES
         for e in entries
     ):
         warnings.append("night_presence_longer_than_12h")
+    if any(e.interventions >= NIGHT_INTERVENTIONS_FULL_RATE for e in entries):
+        warnings.append("night_interventions_need_manual_pricing")
+    if all(e.interventions >= NIGHT_INTERVENTIONS_FULL_RATE for e in entries):
+        warnings.append("night_presence_should_be_requalified")
 
-    per_family = reconcile_exceptional(entries, children, data.split_method, data.family_ids)
-    counts: defaultdict[UUID, set[date]] = defaultdict(set)
+    by_night: defaultdict[date, list[ExceptionalEntry]] = defaultdict(list)
     for entry in entries:
-        counts[entry.family_id].add(entry.start_date)
+        by_night[entry.start_date].append(entry)
 
-    amounts = {
-        family_id: _quantize(to_hours(minutes) * rate, MONEY_QUANTUM)
-        for family_id, minutes in per_family.items()
-    }
-    nights = {
-        family_id: len(counts.get(family_id, set()))
-        for family_id in data.family_ids
-        if counts.get(family_id)
-    }
-    return amounts, nights, warnings
+    amounts: defaultdict[UUID, Decimal] = defaultdict(Decimal)
+    counts: defaultdict[UUID, set[date]] = defaultdict(set)
+    below_floor = False
+
+    for night, night_entries in by_night.items():
+        interventions = max(e.interventions for e in night_entries)
+        required = Fraction(terms.net_hourly_rate) * night_indemnity_ratio(interventions)
+        agreed = Fraction(terms.night_presence_rate)
+        if agreed < required:
+            below_floor = True
+        rate = max(agreed, required)
+        per_family = reconcile_exceptional(
+            night_entries, children, data.split_method, data.family_ids
+        )
+        for family_id, minutes in per_family.items():
+            value = minutes / MINUTES_PER_HOUR * rate
+            amounts[family_id] += _quantize(
+                Decimal(value.numerator) / Decimal(value.denominator), MONEY_QUANTUM
+            )
+            counts[family_id].add(night)
+
+    if below_floor:
+        # Soft, like the minimum-wage check: the month still computes, priced at
+        # what the article requires rather than at what was agreed.
+        warnings.append("night_presence_rate_below_floor")
+
+    nights = {family_id: len(dates) for family_id, dates in counts.items() if dates}
+    return dict(amounts), nights, warnings
 
 
 def compute_month(data: ContractMonth) -> dict[UUID, FamilyResult]:

@@ -523,7 +523,12 @@ def test_a_night_is_an_indemnity_not_hours():
     assert result.night_count == 1
 
 
-def test_a_night_rate_under_a_quarter_of_the_wage_warns_but_still_computes():
+def test_a_night_rate_under_a_quarter_of_the_wage_is_lifted_to_the_floor():
+    # art. 137.2: the indemnity "ne peut pas etre inferieur a un quart du salaire
+    # contractuel verse pour une duree de travail effectif equivalente". A clause
+    # below a conventional minimum is void and replaced by it, and the number this
+    # produces is the one the parent types into pajemploi — so it pays the floor
+    # (4h x 12.00/4 = 12.00) rather than the agreed 1.00/h, and says why.
     entry = d.ExceptionalEntry(
         FAMILY_A, "night_presence", date(2026, 7, 14), time(21, 0), date(2026, 7, 15), time(1, 0)
     )
@@ -531,7 +536,81 @@ def test_a_night_rate_under_a_quarter_of_the_wage_warns_but_still_computes():
         month(terms_=(terms("12.00", night_presence_rate="1.00"),), exceptional=(entry,))
     )[FAMILY_A]
     assert "night_presence_rate_below_floor" in result.warnings
-    assert result.night_indemnity == Decimal("4.00")
+    assert result.night_indemnity == Decimal("12.00")
+
+
+def test_an_unset_night_rate_still_pays_the_floor():
+    entry = d.ExceptionalEntry(
+        FAMILY_A, "night_presence", date(2026, 7, 14), time(21, 0), date(2026, 7, 15), time(1, 0)
+    )
+    result = d.compute_month(month(terms_=(terms("12.00"),), exceptional=(entry,)))[FAMILY_A]
+    assert result.night_indemnity == Decimal("12.00")
+
+
+def test_a_night_agreed_above_the_floor_is_paid_as_agreed():
+    entry = d.ExceptionalEntry(
+        FAMILY_A, "night_presence", date(2026, 7, 14), time(21, 0), date(2026, 7, 15), time(1, 0)
+    )
+    result = d.compute_month(
+        month(terms_=(terms("12.00", night_presence_rate="5.00"),), exceptional=(entry,))
+    )[FAMILY_A]
+    assert result.night_indemnity == Decimal("20.00")  # 4h x 5.00
+    assert "night_presence_rate_below_floor" not in result.warnings
+
+
+def test_a_longer_night_costs_more_because_the_indemnity_is_hourly():
+    # art. 137.2 prices every tier as a fraction "du salaire contractuel verse
+    # pour une duree de travail effectif EQUIVALENTE" — so it scales with the
+    # hours. "Forfaitaire" means "not working time", not "flat per night".
+    short = d.ExceptionalEntry(
+        FAMILY_A, "night_presence", date(2026, 7, 14), time(22, 0), date(2026, 7, 15), time(0, 0)
+    )
+    long = d.ExceptionalEntry(
+        FAMILY_A, "night_presence", date(2026, 7, 14), time(22, 0), date(2026, 7, 15), time(4, 0)
+    )
+    rate = (terms("12.00", night_presence_rate="3.00"),)
+    two = d.compute_month(month(terms_=rate, exceptional=(short,)))[FAMILY_A]
+    six = d.compute_month(month(terms_=rate, exceptional=(long,)))[FAMILY_A]
+    assert two.night_indemnity == Decimal("6.00")
+    assert six.night_indemnity == Decimal("18.00")
+
+
+def test_a_night_woken_twice_is_owed_a_third_not_a_quarter():
+    # "est portee a un tiers" — an obligation, not a floor to warn about.
+    quiet = d.ExceptionalEntry(
+        FAMILY_A, "night_presence", date(2026, 7, 14), time(21, 0), date(2026, 7, 15), time(1, 0)
+    )
+    disturbed = d.ExceptionalEntry(
+        FAMILY_A,
+        "night_presence",
+        date(2026, 7, 14),
+        time(21, 0),
+        date(2026, 7, 15),
+        time(1, 0),
+        interventions=2,
+    )
+    rate = (terms("12.00"),)
+    assert d.compute_month(month(terms_=rate, exceptional=(quiet,)))[
+        FAMILY_A
+    ].night_indemnity == Decimal("12.00")  # 4h x 12/4
+    assert d.compute_month(month(terms_=rate, exceptional=(disturbed,)))[
+        FAMILY_A
+    ].night_indemnity == Decimal("16.00")  # 4h x 12/3
+
+
+def test_four_interventions_every_night_asks_for_the_contract_to_be_revised():
+    entry = d.ExceptionalEntry(
+        FAMILY_A,
+        "night_presence",
+        date(2026, 7, 14),
+        time(21, 0),
+        date(2026, 7, 15),
+        time(1, 0),
+        interventions=4,
+    )
+    result = d.compute_month(month(terms_=(terms("12.00"),), exceptional=(entry,)))[FAMILY_A]
+    assert "night_presence_should_be_requalified" in result.warnings
+    assert "night_interventions_need_manual_pricing" in result.warnings
 
 
 def test_advantages_are_split_so_the_nanny_gets_what_was_agreed_once():

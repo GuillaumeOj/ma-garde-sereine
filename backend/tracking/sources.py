@@ -205,6 +205,25 @@ NIGHT_INDEMNITY_FLOOR = Source(
     ),
 )
 
+NIGHT_INDEMNITY_TIERS = Source(
+    ref="CCN 3239, art. 137.2 — Rémunération de la présence de nuit",
+    url=f"{CCN}/socle-salarie-du-particulier-employeur/article-137-2-heures-de-presence-de-nuit/",
+    quote=(
+        "La présence de nuit est rémunérée par une indemnité forfaitaire dont le montant ne peut "
+        "pas être inférieur à un quart (¼) du salaire contractuel versé pour une durée de "
+        "travail effectif équivalente. Si certaines nuits, le salarié est appelé à intervenir : "
+        "au moins deux (2) fois, l'indemnité forfaitaire due au titre de la nuit au cours de "
+        "laquelle le salarié est intervenu, est portée à un tiers (1/3) du salaire contractuel "
+        "versé pour une durée de travail effectif équivalente ; au moins quatre (4) fois, "
+        "l'indemnité due pour la durée des interventions, correspond au salaire contractuel "
+        "versé pour une durée de travail effectif équivalente. L'indemnité forfaitaire pour la "
+        "présence de nuit restante est égale à un tiers (1/3) du salaire contractuel versé pour "
+        "une durée de travail effectif équivalente. Si toutes les nuits, le salarié est amené à "
+        "intervenir au moins quatre (4) fois, les heures de présence de nuit sont requalifiées "
+        "en heures de travail effectif et le contrat de travail doit être revu."
+    ),
+)
+
 # --- absences ----------------------------------------------------------------
 
 UNPAID_ABSENCE = Source(
@@ -277,6 +296,8 @@ WARNING_SOURCES: dict[str, Source] = {
     "night_presence_rate_below_floor": NIGHT_INDEMNITY_FLOOR,
     "night_presence_longer_than_12h": NIGHT_INDEMNITY_FLOOR,
     "night_presence_outside_window": NIGHT_PRESENCE,
+    "night_presence_should_be_requalified": NIGHT_INDEMNITY_TIERS,
+    "night_interventions_need_manual_pricing": NIGHT_INDEMNITY_TIERS,
     "presence_responsable_in_shared_care": PRESENCE_RESPONSABLE_SHARED_CARE,
     "split_without_children": SHARED_CARE_SPLIT,
     "weekly_hours_over_maximum": MAXIMUM_WEEK,

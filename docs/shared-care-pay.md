@@ -65,7 +65,7 @@ are paid by three different mechanisms:
 | Kind | Mechanism |
 | --- | --- |
 | Extra effective work (early morning, late afternoon) | Adds to the weekly total → may cross into +25% / +50% |
-| **Présence de nuit** (20:00–06:30) | Flat **indemnity per night**, floor of ¼ of the contractual rate. **Not hours.** |
+| **Présence de nuit** (20:00–06:30) | An **indemnity**, priced **by the hour** at a fraction of the equivalent salary. Does not count toward the 40h week. |
 | **Présence responsable** | Counts as **⅔** of an effective hour — **but forbidden in garde partagée**, see below |
 
 Hence an exceptional-hours entry carries a **type**, never just a duration.
@@ -85,10 +85,31 @@ Hence an exceptional-hours entry carries a **type**, never just a duration.
 > **before** the weekly count (« prises en compte **après leur conversion** »), and it
 > « ne se présume pas » — it must be written into the contract.
 
-**Présence de nuit is priced per night, not per hour.** The model contract quotes
-« ……… € brut **par nuit** ». It also requires the nanny to **sleep on site** in a
-separate room ([art. 137.2][ccn-137-2]) — a 20:00–23:00 babysit is *travail effectif*,
-not présence de nuit, and is the more expensive of the two.
+**Présence de nuit is priced by the hour, and "forfaitaire" does not mean "flat".**
+[Art. 137.2][ccn-137-2] settles it by repetition — *every* tier is a fraction « du
+salaire contractuel versé pour une durée de travail effectif **équivalente** », i.e. of
+what those same hours of real work would have paid:
+
+| That night | Indemnity |
+| --- | --- |
+| Undisturbed | **≥ ¼** of the equivalent salary |
+| Woken **≥ 2** times | « est **portée à** » **⅓** — an obligation, not a floor |
+| Woken **≥ 4** times | The interventions themselves at the **full** rate; the rest of the night at ⅓ |
+| **Every** night ≥ 4 | Requalified as effective work outright; « le contrat de travail doit être revu » |
+
+So a longer night costs more, and a contract quoting « ……… € brut par nuit » is
+expressing the same rule for its own expected duration, not a different one. An agreed
+rate below what the article requires is lifted to it — a clause under a conventional
+minimum is void and replaced by the minimum — and warned about. An unset rate therefore
+pays the ¼ floor rather than nothing.
+
+The last two rows are **not computed**: they need each intervention's duration, which
+nothing records. They warn instead of producing a wrong number.
+
+Présence de nuit also requires the nanny to **sleep on site** in a separate room
+(art. 137.2), so a 20:00–23:00 babysit is *travail effectif* — the more expensive kind,
+and the one that counts toward the 40h week. The window itself may be shifted by up to
+1h30 in total by agreement, which the contract records and this codebase does not.
 
 ### Mensualisation
 

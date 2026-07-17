@@ -615,6 +615,11 @@ class ExceptionalHours(UUIDModel):
     # start_date.
     end_date = models.DateField()
     end_time = models.TimeField()
+    # How many times the nanny was woken (NIGHT_PRESENCE only). Not a statistic:
+    # art. 137.2 raises the indemnity from a quarter of the equivalent salary to
+    # a third from the second intervention onwards ("est portée à"), so a night
+    # left at 0 here is priced a third cheaper than a night she was up twice for.
+    interventions = models.PositiveSmallIntegerField(default=0)
     notes = models.TextField(blank=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -662,6 +667,10 @@ class ExceptionalHours(UUIDModel):
         if self.start_date and self.end_date and self.end_date < self.start_date:
             raise ValidationError(
                 {"end_date": _("The ending date cannot be before the starting date.")}
+            )
+        if self.interventions and self.kind != self.Kind.NIGHT_PRESENCE:
+            raise ValidationError(
+                {"interventions": _("Interventions only apply to night presence.")}
             )
         if self.kind == self.Kind.NIGHT_PRESENCE and self.start_time and self.end_time:
             # The window is 20:00-06:30, which the parties may shift by up to
