@@ -3,6 +3,7 @@ import {
   Baby,
   CalendarDays,
   ChevronUp,
+  FileText,
   HomeIcon,
   Menu,
   Settings,
@@ -166,6 +167,12 @@ export function NavBar() {
             <NavLink to="/planning" className={linkClass}>
               <CalendarDays size={18} aria-hidden="true" />
               {t('nav.planning')}
+            </NavLink>
+          </li>
+          <li>
+            <NavLink to="/declarations" className={linkClass}>
+              <FileText size={18} aria-hidden="true" />
+              {t('nav.declarations')}
             </NavLink>
           </li>
           <li>

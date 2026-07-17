@@ -12,6 +12,9 @@ vi.mock('@/src/pages/Home', () => ({ default: () => <p>home</p> }))
 vi.mock('@/src/pages/LoginPage', () => ({ default: () => <p>login</p> }))
 vi.mock('@/src/pages/RegisterPage', () => ({ default: () => <p>register</p> }))
 vi.mock('@/src/pages/Planning', () => ({ default: () => <p>planning</p> }))
+vi.mock('@/src/pages/Declarations', () => ({
+  default: () => <p>declarations</p>,
+}))
 
 const mockUseAuth = vi.mocked(useAuth)
 
@@ -49,6 +52,18 @@ describe('App routing', () => {
   it('redirects unauthenticated users away from /', () => {
     setAuthenticated(false)
     renderAt('/')
+    expect(screen.getByText('login')).toBeInTheDocument()
+  })
+
+  it('renders the declarations page', () => {
+    setAuthenticated(true)
+    renderAt('/declarations')
+    expect(screen.getByText('declarations')).toBeInTheDocument()
+  })
+
+  it('keeps the declarations page behind the login', () => {
+    setAuthenticated(false)
+    renderAt('/declarations')
     expect(screen.getByText('login')).toBeInTheDocument()
   })
 

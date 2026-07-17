@@ -40,6 +40,7 @@ const en = {
   'nav.primary': 'Main navigation',
   'nav.home': 'Home',
   'nav.planning': 'Planning',
+  'nav.declarations': 'Declarations',
   'nav.nannies': 'Nannies',
   'nav.nanniesPending': 'Pending contract invitations',
   'nav.family': 'Family',
@@ -207,6 +208,77 @@ const en = {
     'Add the children this contract covers first.',
   'exceptional.presence.childRequired': 'Choose a child.',
   'exceptional.presence.dateRequired': 'Give a date.',
+  'declaration.title': 'Declarations',
+  'declaration.subtitle':
+    'What each family declares to pajemploi for the month. A draft follows the planning; filing freezes it.',
+  'declaration.loading': 'Loading…',
+  'declaration.loadError': 'Could not load the declarations.',
+  'declaration.none': 'Nothing to declare for this month.',
+  // Not contract.empty: that one points at an add form, and there is none here.
+  'declaration.noContracts': 'No nannies yet. Add one to declare their hours.',
+  'declaration.yours': 'Your declaration',
+  'declaration.status.draft': 'Draft',
+  'declaration.status.filed': 'Filed',
+  'declaration.filedOn': 'Filed on',
+  'declaration.hours': 'Hours',
+  'declaration.normalHours': 'Normal hours',
+  'declaration.hours25': 'Hours at +25%',
+  'declaration.hours50': 'Hours at +50%',
+  'declaration.pay': 'Pay',
+  'declaration.totalAmount': 'Net salary',
+  'declaration.holidayMajoration': 'Public holiday majoration',
+  'declaration.nightIndemnity': 'Night presence indemnity',
+  'declaration.nightCount': 'Nights',
+  'declaration.extras': 'Expenses and benefits',
+  'declaration.transportAmount': 'Transport',
+  'declaration.benefitsInKind': 'Benefits in kind',
+  'declaration.kilometers': 'Kilometres driven',
+  'declaration.kilometersHint':
+    'The one figure only you know. Everything else is computed.',
+  'declaration.mileageAmount': 'Mileage',
+  'declaration.saveKilometers': 'Save',
+  'declaration.saving': 'Saving…',
+  'declaration.saveError': 'Could not save the kilometres.',
+  'declaration.rates': 'Rates applied',
+  'declaration.netHourlyRate': 'Net hourly rate',
+  'declaration.nightPresenceRate': 'Night presence rate',
+  'declaration.mileageRate': 'Mileage rate',
+  'declaration.perHour': '/hour',
+  'declaration.perKm': '/km',
+  'declaration.ratePeriods': 'Rates changed mid-month',
+  'declaration.ratePeriodDays': 'days',
+  'declaration.file': 'File this month',
+  'declaration.filing': 'Filing…',
+  'declaration.fileError': 'Could not file the declaration.',
+  'declaration.confirmFileTitle': 'File this declaration?',
+  'declaration.confirmFileDescription':
+    'Filing records these figures as sent to pajemploi and freezes them. Nothing may rewrite a filed declaration afterwards.',
+  'declaration.checkBeforeFiling': 'Check these before filing',
+  'declaration.sourceQuote': 'What the convention says',
+  'declaration.sourceLink': 'Read the article',
+  // One per code the compute raises. The bare code would make a parent take our
+  // word for a figure they are about to file; each is paired with the article
+  // behind it, which the backend sends alongside.
+  'declaration.warning.rates_changed_mid_month':
+    'The rates changed during the month, so the total is not simply the hours times one rate. The periods are listed above.',
+  'declaration.warning.night_presence_rate_below_floor':
+    'The night presence rate is below the floor the convention sets. Check the contract.',
+  'declaration.warning.night_presence_longer_than_12h':
+    'A night presence runs longer than 12 hours, which the indemnity does not cover. Price the excess by hand.',
+  'declaration.warning.night_presence_outside_window':
+    'A night presence falls outside the night window the convention defines.',
+  'declaration.warning.night_presence_should_be_requalified':
+    'The nanny was woken often enough that this night counts as effective work, not a presence. Requalify it.',
+  'declaration.warning.night_interventions_need_manual_pricing':
+    'This night was interrupted, so its indemnity rises. Price it by hand.',
+  'declaration.warning.presence_responsable_in_shared_care':
+    'Responsible presence is not allowed on a shared contract, so it was not priced.',
+  'declaration.warning.split_without_children':
+    'This contract splits the pay between families but lists no children, so there is nothing to split by.',
+  'declaration.warning.weekly_hours_over_maximum':
+    'A week runs past the maximum the convention allows.',
+  'declaration.warning.worked_holiday_not_majorated':
+    'A public holiday was worked without its majoration.',
   'terms.belowMinFor': 'Below the recommended minimum for this date:',
   'wizard.step': 'Step',
   'wizard.of': 'of',
@@ -384,6 +456,7 @@ const fr: Record<TranslationKey, string> = {
   'nav.primary': 'Navigation principale',
   'nav.home': 'Accueil',
   'nav.planning': 'Planning',
+  'nav.declarations': 'Déclarations',
   'nav.nannies': 'Nounous',
   'nav.nanniesPending': 'Invitations de contrat en attente',
   'nav.family': 'Famille',
@@ -557,6 +630,78 @@ const fr: Record<TranslationKey, string> = {
     'Ajoutez d’abord les enfants couverts par ce contrat.',
   'exceptional.presence.childRequired': 'Choisissez un enfant.',
   'exceptional.presence.dateRequired': 'Indiquez une date.',
+  'declaration.title': 'Déclarations',
+  'declaration.subtitle':
+    'Ce que chaque famille déclare à pajemploi pour le mois. Un brouillon suit le planning ; la déclaration le fige.',
+  'declaration.loading': 'Chargement…',
+  'declaration.loadError': 'Impossible de charger les déclarations.',
+  'declaration.none': 'Rien à déclarer pour ce mois.',
+  // Pas contract.empty : celle-ci renvoie à un formulaire d’ajout, absent ici.
+  'declaration.noContracts':
+    'Aucune nounou pour le moment. Ajoutez-en une pour déclarer ses heures.',
+  'declaration.yours': 'Votre déclaration',
+  'declaration.status.draft': 'Brouillon',
+  'declaration.status.filed': 'Déclaré',
+  'declaration.filedOn': 'Déclaré le',
+  'declaration.hours': 'Heures',
+  'declaration.normalHours': 'Heures normales',
+  'declaration.hours25': 'Heures majorées à 25 %',
+  'declaration.hours50': 'Heures majorées à 50 %',
+  'declaration.pay': 'Rémunération',
+  'declaration.totalAmount': 'Salaire net',
+  'declaration.holidayMajoration': 'Majoration jour férié',
+  'declaration.nightIndemnity': 'Indemnité de présence de nuit',
+  'declaration.nightCount': 'Nuits',
+  'declaration.extras': 'Frais et avantages',
+  'declaration.transportAmount': 'Transport',
+  'declaration.benefitsInKind': 'Avantages en nature',
+  'declaration.kilometers': 'Kilomètres parcourus',
+  'declaration.kilometersHint':
+    'Le seul chiffre que vous seul connaissez. Tout le reste est calculé.',
+  'declaration.mileageAmount': 'Indemnités kilométriques',
+  'declaration.saveKilometers': 'Enregistrer',
+  'declaration.saving': 'Enregistrement…',
+  'declaration.saveError': 'Impossible d’enregistrer les kilomètres.',
+  'declaration.rates': 'Taux appliqués',
+  'declaration.netHourlyRate': 'Salaire horaire net',
+  'declaration.nightPresenceRate': 'Taux de présence de nuit',
+  'declaration.mileageRate': 'Barème kilométrique',
+  'declaration.perHour': '/heure',
+  'declaration.perKm': '/km',
+  'declaration.ratePeriods': 'Les taux ont changé en cours de mois',
+  'declaration.ratePeriodDays': 'jours',
+  'declaration.file': 'Déclarer ce mois',
+  'declaration.filing': 'Déclaration…',
+  'declaration.fileError': 'Impossible de déclarer.',
+  'declaration.confirmFileTitle': 'Déclarer ce mois ?',
+  'declaration.confirmFileDescription':
+    'Déclarer enregistre ces montants comme envoyés à pajemploi et les fige. Plus rien ne pourra les modifier ensuite.',
+  'declaration.checkBeforeFiling': 'À vérifier avant de déclarer',
+  'declaration.sourceQuote': 'Ce que dit la convention',
+  'declaration.sourceLink': 'Lire l’article',
+  // Une par code levé par le calcul. Le code seul obligerait un parent à nous
+  // croire sur un chiffre qu’il s’apprête à déclarer ; chacune est accompagnée
+  // de l’article correspondant, que le backend renvoie avec.
+  'declaration.warning.rates_changed_mid_month':
+    'Les taux ont changé pendant le mois : le total n’est donc pas simplement les heures multipliées par un taux. Les périodes sont listées ci-dessus.',
+  'declaration.warning.night_presence_rate_below_floor':
+    'Le taux de présence de nuit est inférieur au minimum fixé par la convention. Vérifiez le contrat.',
+  'declaration.warning.night_presence_longer_than_12h':
+    'Une présence de nuit dépasse 12 heures, ce que l’indemnité ne couvre pas. Chiffrez le dépassement à la main.',
+  'declaration.warning.night_presence_outside_window':
+    'Une présence de nuit se situe hors de la plage de nuit définie par la convention.',
+  'declaration.warning.night_presence_should_be_requalified':
+    'La salariée a été réveillée assez souvent pour que cette nuit compte comme du travail effectif, et non comme une présence. Requalifiez-la.',
+  'declaration.warning.night_interventions_need_manual_pricing':
+    'Cette nuit a été interrompue, son indemnité augmente donc. Chiffrez-la à la main.',
+  'declaration.warning.presence_responsable_in_shared_care':
+    'La présence responsable est interdite en garde partagée : elle n’a pas été rémunérée.',
+  'declaration.warning.split_without_children':
+    'Ce contrat partage la rémunération entre les familles mais ne liste aucun enfant : il n’y a rien pour répartir.',
+  'declaration.warning.weekly_hours_over_maximum':
+    'Une semaine dépasse le maximum autorisé par la convention.',
+  'declaration.warning.worked_holiday_not_majorated':
+    'Un jour férié a été travaillé sans sa majoration.',
   'terms.belowMinFor': 'En dessous du minimum recommandé pour cette date :',
   'wizard.step': 'Étape',
   'wizard.of': 'sur',

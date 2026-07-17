@@ -3,6 +3,7 @@ import { Navigate, Outlet, Route, Routes } from 'react-router-dom'
 import { ProtectedRoute } from '@/src/auth/ProtectedRoute'
 import { NavBar } from '@/src/components/NavBar'
 import { SettingsBar } from '@/src/components/SettingsBar'
+import Declarations from '@/src/pages/Declarations'
 import Family from '@/src/pages/Family'
 import Home from '@/src/pages/Home'
 import InvitePage from '@/src/pages/InvitePage'
@@ -68,6 +69,7 @@ function App() {
       <Route element={<AppLayout />}>
         <Route path="/" element={<Home />} />
         <Route path="/planning" element={<Planning />} />
+        <Route path="/declarations" element={<Declarations />} />
         <Route path="/nannies" element={<Nannies />} />
         {/* Days off became a Planning tab; keep the old address working. */}
         <Route path="/leaves" element={<Navigate to="/planning" replace />} />
