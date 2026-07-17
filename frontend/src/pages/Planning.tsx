@@ -12,12 +12,25 @@ import {
   subMonths,
 } from 'date-fns'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
-import { useMemo, useState } from 'react'
-import { getContractSchedules, getContracts } from '@/src/api/contracts'
+import { type ComponentType, useMemo, useState } from 'react'
+import {
+  type Contract,
+  getContractSchedules,
+  getContracts,
+} from '@/src/api/contracts'
 import { getFamilies } from '@/src/api/family'
 import { type BankHoliday, getBankHolidays } from '@/src/api/holidays'
+import { ExceptionalHoursSection } from '@/src/components/ExceptionalHoursSection'
+import { ExceptionalPresenceSection } from '@/src/components/ExceptionalPresenceSection'
+import { LeavesSection } from '@/src/components/LeavesSection'
 import { Button } from '@/src/components/ui/button'
 import { Label } from '@/src/components/ui/label'
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '@/src/components/ui/tabs'
 import { MOBILE_QUERY, useMediaQuery } from '@/src/hooks/useMediaQuery'
 import { useI18n } from '@/src/i18n/I18nContext'
 import { cn, localeFor, selectClass } from '@/src/lib/utils'
@@ -190,6 +203,40 @@ export default function Planning() {
   const selectedEntries = entriesByDay[selectedIndex]
   const selectedHoliday = holidaysByIso.get(isoDays[selectedIndex])
 
+  // The record tabs all hang off the same contracts query and all lay out the
+  // same way — a card per nanny, scoped to the family selected above. Only the
+  // section inside the card differs, so the shell is written once.
+  const contractCards = (
+    Section: ComponentType<{ familyId: string; contract: Contract }>,
+  ) => {
+    if (isLoading) {
+      return (
+        <p className="text-sm text-muted-foreground">{t('planning.loading')}</p>
+      )
+    }
+    if (isError) {
+      return (
+        <p className="text-sm text-destructive">{t('planning.loadError')}</p>
+      )
+    }
+    if (activeFamilyId === null || contractList.length === 0) {
+      return (
+        <p className="text-sm text-muted-foreground">{t('contract.empty')}</p>
+      )
+    }
+    return (
+      <div className="flex flex-col gap-4">
+        {contractList.map((contract) => (
+          <Section
+            key={contract.id}
+            familyId={activeFamilyId}
+            contract={contract}
+          />
+        ))}
+      </div>
+    )
+  }
+
   if (!families || families.length === 0) {
     return (
       <main className="flex flex-1 flex-col gap-6 p-4 sm:p-10">
@@ -254,160 +301,197 @@ export default function Planning() {
         </Button>
       </div>
 
-      {isLoading ? (
-        <p className="text-sm text-muted-foreground">{t('planning.loading')}</p>
-      ) : isError ? (
-        <p className="text-sm text-destructive">{t('planning.loadError')}</p>
-      ) : (
-        <>
-          <div className="grid grid-cols-7 gap-px overflow-hidden rounded-lg bg-border">
-            {weekdayHeaders.map((day) => (
-              <div
-                key={format(day, 'EEEE')}
-                className="bg-muted px-2 py-1.5 text-center text-xs font-medium uppercase text-muted-foreground"
-              >
-                {format(day, 'EEEEEE', { locale })}
-              </div>
-            ))}
-            {days.map((day, index) => {
-              const iso = isoDays[index]
-              const entries = entriesByDay[index]
-              const outside = !isSameMonth(day, visibleMonth)
-              const today = isToday(day)
-              const holiday = holidaysByIso.get(iso)
-              const background = holiday
-                ? 'bg-red-500/10'
-                : outside
-                  ? 'bg-muted/40'
-                  : 'bg-background'
-              const dayNumber = (
-                <span
-                  className={cn(
-                    'text-xs',
-                    today
-                      ? 'flex size-5 items-center justify-center rounded-full bg-primary font-medium text-primary-foreground'
-                      : outside
-                        ? 'text-muted-foreground'
-                        : 'text-foreground',
-                  )}
-                >
-                  {format(day, 'd')}
-                </span>
-              )
+      {/* The selector and the month above scope every tab. The list is a 2×2
+          grid on a phone and one row from md up — same triggers either way, so
+          this is a matter for CSS rather than for a branch on the viewport. */}
+      <Tabs defaultValue="calendar">
+        <TabsList className="grid h-auto! w-full grid-cols-2 gap-1 md:inline-flex md:w-fit">
+          <TabsTrigger value="calendar" className="h-8">
+            {t('planning.tab.calendar')}
+          </TabsTrigger>
+          <TabsTrigger value="leaves" className="h-8">
+            {t('planning.tab.leaves')}
+          </TabsTrigger>
+          <TabsTrigger value="hours" className="h-8">
+            {t('planning.tab.hours')}
+          </TabsTrigger>
+          <TabsTrigger value="presence" className="h-8">
+            {t('planning.tab.presence')}
+          </TabsTrigger>
+        </TabsList>
 
-              // Phone: a tappable square carrying only the date and one dot per
-              // worked block. The names and hours live in the panel below.
-              if (isMobile) {
-                const selected = index === selectedIndex
-                return (
-                  <button
-                    type="button"
-                    key={day.toISOString()}
-                    onClick={() => setSelectedIso(iso)}
-                    aria-pressed={selected}
-                    aria-label={format(day, 'PPPP', { locale })}
-                    className={cn(
-                      'flex min-h-14 flex-col items-center gap-1 p-1.5',
-                      background,
-                      selected && 'ring-2 ring-primary ring-inset',
-                    )}
+        <TabsContent value="calendar" className="flex flex-col gap-6">
+          {isLoading ? (
+            <p className="text-sm text-muted-foreground">
+              {t('planning.loading')}
+            </p>
+          ) : isError ? (
+            <p className="text-sm text-destructive">
+              {t('planning.loadError')}
+            </p>
+          ) : (
+            <>
+              <div className="grid grid-cols-7 gap-px overflow-hidden rounded-lg bg-border">
+                {weekdayHeaders.map((day) => (
+                  <div
+                    key={format(day, 'EEEE')}
+                    className="bg-muted px-2 py-1.5 text-center text-xs font-medium uppercase text-muted-foreground"
                   >
-                    {dayNumber}
-                    <span className="flex flex-wrap justify-center gap-0.5">
-                      {holiday && (
-                        <span className="size-1.5 rounded-full bg-red-500" />
-                      )}
-                      {entries.map((entry) => (
-                        <span
-                          key={`${entry.contractId}-${entry.start}-${entry.end}`}
-                          className={cn(
-                            'size-1.5 rounded-full',
-                            NANNY_COLORS[nannyColorIndex[entry.nannyId]].dot,
-                          )}
-                        />
-                      ))}
-                    </span>
-                  </button>
-                )
-              }
-
-              return (
-                <div
-                  key={day.toISOString()}
-                  className={cn(
-                    'flex min-h-24 flex-col gap-1 p-1.5',
-                    background,
-                  )}
-                >
-                  {dayNumber}
-                  {holiday && (
-                    <div className="truncate rounded bg-red-500/15 px-1.5 py-1 text-[11px] font-medium leading-tight text-red-700 dark:text-red-300">
-                      {holiday.name}
-                    </div>
-                  )}
-                  {entries.map((entry) => (
-                    <div
-                      key={`${entry.contractId}-${entry.start}-${entry.end}`}
+                    {format(day, 'EEEEEE', { locale })}
+                  </div>
+                ))}
+                {days.map((day, index) => {
+                  const iso = isoDays[index]
+                  const entries = entriesByDay[index]
+                  const outside = !isSameMonth(day, visibleMonth)
+                  const today = isToday(day)
+                  const holiday = holidaysByIso.get(iso)
+                  const background = holiday
+                    ? 'bg-red-500/10'
+                    : outside
+                      ? 'bg-muted/40'
+                      : 'bg-background'
+                  const dayNumber = (
+                    <span
                       className={cn(
-                        'rounded px-1.5 py-1 text-[11px] leading-tight',
-                        NANNY_COLORS[nannyColorIndex[entry.nannyId]].tint,
+                        'text-xs',
+                        today
+                          ? 'flex size-5 items-center justify-center rounded-full bg-primary font-medium text-primary-foreground'
+                          : outside
+                            ? 'text-muted-foreground'
+                            : 'text-foreground',
                       )}
                     >
-                      <div className="truncate font-bold">
-                        {entry.nannyName}
-                      </div>
-                      <div className="tabular-nums">
-                        {entry.start}–{entry.end}
-                      </div>
+                      {format(day, 'd')}
+                    </span>
+                  )
+
+                  // Phone: a tappable square carrying only the date and one dot per
+                  // worked block. The names and hours live in the panel below.
+                  if (isMobile) {
+                    const selected = index === selectedIndex
+                    return (
+                      <button
+                        type="button"
+                        key={day.toISOString()}
+                        onClick={() => setSelectedIso(iso)}
+                        aria-pressed={selected}
+                        aria-label={format(day, 'PPPP', { locale })}
+                        className={cn(
+                          'flex min-h-14 flex-col items-center gap-1 p-1.5',
+                          background,
+                          selected && 'ring-2 ring-primary ring-inset',
+                        )}
+                      >
+                        {dayNumber}
+                        <span className="flex flex-wrap justify-center gap-0.5">
+                          {holiday && (
+                            <span className="size-1.5 rounded-full bg-red-500" />
+                          )}
+                          {entries.map((entry) => (
+                            <span
+                              key={`${entry.contractId}-${entry.start}-${entry.end}`}
+                              className={cn(
+                                'size-1.5 rounded-full',
+                                NANNY_COLORS[nannyColorIndex[entry.nannyId]]
+                                  .dot,
+                              )}
+                            />
+                          ))}
+                        </span>
+                      </button>
+                    )
+                  }
+
+                  return (
+                    <div
+                      key={day.toISOString()}
+                      className={cn(
+                        'flex min-h-24 flex-col gap-1 p-1.5',
+                        background,
+                      )}
+                    >
+                      {dayNumber}
+                      {holiday && (
+                        <div className="truncate rounded bg-red-500/15 px-1.5 py-1 text-[11px] font-medium leading-tight text-red-700 dark:text-red-300">
+                          {holiday.name}
+                        </div>
+                      )}
+                      {entries.map((entry) => (
+                        <div
+                          key={`${entry.contractId}-${entry.start}-${entry.end}`}
+                          className={cn(
+                            'rounded px-1.5 py-1 text-[11px] leading-tight',
+                            NANNY_COLORS[nannyColorIndex[entry.nannyId]].tint,
+                          )}
+                        >
+                          <div className="truncate font-bold">
+                            {entry.nannyName}
+                          </div>
+                          <div className="tabular-nums">
+                            {entry.start}–{entry.end}
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              )
-            })}
-          </div>
+                  )
+                })}
+              </div>
 
-          {isMobile && (
-            <section className="flex flex-col gap-2" aria-live="polite">
-              <h2 className="text-sm font-medium capitalize">
-                {format(selectedDay, 'PPPP', { locale })}
-              </h2>
-              {selectedHoliday && (
-                <p className="rounded-lg bg-red-500/15 px-3 py-2 text-sm font-medium text-red-700 dark:text-red-300">
-                  {selectedHoliday.name}
-                </p>
+              {isMobile && (
+                <section className="flex flex-col gap-2" aria-live="polite">
+                  <h2 className="text-sm font-medium capitalize">
+                    {format(selectedDay, 'PPPP', { locale })}
+                  </h2>
+                  {selectedHoliday && (
+                    <p className="rounded-lg bg-red-500/15 px-3 py-2 text-sm font-medium text-red-700 dark:text-red-300">
+                      {selectedHoliday.name}
+                    </p>
+                  )}
+                  {selectedEntries.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      {t('planning.noWorkedDay')}
+                    </p>
+                  ) : (
+                    selectedEntries.map((entry) => (
+                      <div
+                        key={`${entry.contractId}-${entry.start}-${entry.end}`}
+                        className={cn(
+                          'flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-sm',
+                          NANNY_COLORS[nannyColorIndex[entry.nannyId]].tint,
+                        )}
+                      >
+                        <span className="min-w-0 truncate font-medium">
+                          {entry.nannyName}
+                        </span>
+                        <span className="shrink-0 tabular-nums">
+                          {entry.start}–{entry.end}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </section>
               )}
-              {selectedEntries.length === 0 ? (
+
+              {!hasEntries && (
                 <p className="text-sm text-muted-foreground">
-                  {t('planning.noWorkedDay')}
+                  {t('planning.noWorkedDays')}
                 </p>
-              ) : (
-                selectedEntries.map((entry) => (
-                  <div
-                    key={`${entry.contractId}-${entry.start}-${entry.end}`}
-                    className={cn(
-                      'flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-sm',
-                      NANNY_COLORS[nannyColorIndex[entry.nannyId]].tint,
-                    )}
-                  >
-                    <span className="min-w-0 truncate font-medium">
-                      {entry.nannyName}
-                    </span>
-                    <span className="shrink-0 tabular-nums">
-                      {entry.start}–{entry.end}
-                    </span>
-                  </div>
-                ))
               )}
-            </section>
+            </>
           )}
+        </TabsContent>
 
-          {!hasEntries && (
-            <p className="text-sm text-muted-foreground">
-              {t('planning.noWorkedDays')}
-            </p>
-          )}
-        </>
-      )}
+        {/* Radix unmounts the tab that is not showing, so only the calendar's
+            queries run until one of these is asked for. */}
+        <TabsContent value="leaves">{contractCards(LeavesSection)}</TabsContent>
+        <TabsContent value="hours">
+          {contractCards(ExceptionalHoursSection)}
+        </TabsContent>
+        <TabsContent value="presence">
+          {contractCards(ExceptionalPresenceSection)}
+        </TabsContent>
+      </Tabs>
     </main>
   )
 }

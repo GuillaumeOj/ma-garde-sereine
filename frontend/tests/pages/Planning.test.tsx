@@ -7,8 +7,14 @@ import {
   getContractSchedules,
   getContracts,
 } from '@/src/api/contracts'
+import {
+  getContractChildren,
+  getExceptionalHours,
+  getExceptionalPresences,
+} from '@/src/api/declarations'
 import { getFamilies } from '@/src/api/family'
 import { getBankHolidays } from '@/src/api/holidays'
+import { getLeaves } from '@/src/api/leaves'
 import { MOBILE_QUERY } from '@/src/hooks/useMediaQuery'
 import Planning from '@/src/pages/Planning'
 import { renderWithProviders } from '@/tests/utils'
@@ -19,12 +25,36 @@ vi.mock('@/src/api/contracts', () => ({
   getContractSchedules: vi.fn(),
 }))
 vi.mock('@/src/api/holidays', () => ({ getBankHolidays: vi.fn() }))
+// The record tabs live on this page now, so their API surface has to be mocked
+// even for the tests that never leave the calendar: an unmocked module reaches
+// for a real axios call the moment a tab mounts.
+vi.mock('@/src/api/leaves', () => ({
+  getLeaves: vi.fn(),
+  createLeave: vi.fn(),
+  updateLeave: vi.fn(),
+  deleteLeave: vi.fn(),
+}))
+vi.mock('@/src/api/declarations', () => ({
+  getExceptionalHours: vi.fn(),
+  createExceptionalHours: vi.fn(),
+  updateExceptionalHours: vi.fn(),
+  deleteExceptionalHours: vi.fn(),
+  getExceptionalPresences: vi.fn(),
+  createExceptionalPresence: vi.fn(),
+  updateExceptionalPresence: vi.fn(),
+  deleteExceptionalPresence: vi.fn(),
+  getContractChildren: vi.fn(),
+}))
 
 const m = {
   families: vi.mocked(getFamilies),
   contracts: vi.mocked(getContracts),
   schedules: vi.mocked(getContractSchedules),
   holidays: vi.mocked(getBankHolidays),
+  leaves: vi.mocked(getLeaves),
+  hours: vi.mocked(getExceptionalHours),
+  presences: vi.mocked(getExceptionalPresences),
+  children: vi.mocked(getContractChildren),
 }
 
 const family = {
@@ -91,6 +121,10 @@ beforeEach(() => {
   m.contracts.mockResolvedValue([])
   m.schedules.mockResolvedValue([makeSchedule()])
   m.holidays.mockResolvedValue([])
+  m.leaves.mockResolvedValue([])
+  m.hours.mockResolvedValue([])
+  m.presences.mockResolvedValue([])
+  m.children.mockResolvedValue([])
 })
 afterEach(() => {
   vi.useRealTimers()
@@ -200,6 +234,103 @@ describe('Planning page', () => {
   it('surfaces a load error', async () => {
     m.contracts.mockRejectedValue(new Error('boom'))
     renderWithProviders(<Planning />)
+    expect(
+      await screen.findByText('Could not load the planning.'),
+    ).toBeInTheDocument()
+  })
+})
+
+describe('Planning tabs', () => {
+  const openTab = async (name: string) => {
+    const user = setupUser()
+    m.contracts.mockResolvedValue([makeContract()])
+    renderWithProviders(<Planning />)
+    await screen.findByText('July 2026')
+    await user.click(screen.getByRole('tab', { name }))
+    return user
+  }
+
+  it('starts on the calendar', async () => {
+    m.contracts.mockResolvedValue([makeContract()])
+    renderWithProviders(<Planning />)
+    expect(
+      await screen.findByRole('tab', { name: 'Calendar' }),
+    ).toHaveAttribute('aria-selected', 'true')
+    // The record tabs are not merely hidden: they never asked for their data.
+    expect(m.leaves).not.toHaveBeenCalled()
+    expect(m.hours).not.toHaveBeenCalled()
+    expect(m.presences).not.toHaveBeenCalled()
+  })
+
+  it('shows the days off of each nanny, and drops the calendar', async () => {
+    await openTab('Days off')
+    expect(
+      await screen.findByText('No days off recorded yet.'),
+    ).toBeInTheDocument()
+    // The name is the card's title now — the five worked cells are unmounted.
+    expect(screen.getAllByText('Marie Dupont')).toHaveLength(1)
+    expect(screen.queryByText('July 2026')).toBeInTheDocument()
+  })
+
+  it('shows the exceptional hours of each nanny', async () => {
+    await openTab('Exceptional hours')
+    expect(
+      await screen.findByText('No exceptional hours recorded yet.'),
+    ).toBeInTheDocument()
+    expect(m.hours).toHaveBeenCalledWith('1', '10')
+  })
+
+  it('shows the exceptional presence of each nanny', async () => {
+    await openTab('Exceptional presence')
+    expect(
+      await screen.findByText('No exceptional presence recorded yet.'),
+    ).toBeInTheDocument()
+    expect(m.presences).toHaveBeenCalledWith('1', '10')
+  })
+
+  it('keeps a single family selector, above the tabs', async () => {
+    await openTab('Days off')
+    await screen.findByText('No days off recorded yet.')
+    // Two would mean two elements sharing id="acting-family".
+    expect(screen.getAllByLabelText('Acting as family')).toHaveLength(1)
+  })
+
+  it('scopes a record tab to the family selected above it', async () => {
+    const family2 = { ...family, id: '2', name: 'Grandparents' }
+    m.families.mockResolvedValue([family, family2])
+    const user = await openTab('Exceptional hours')
+    await screen.findByText('No exceptional hours recorded yet.')
+
+    await user.selectOptions(screen.getByLabelText('Acting as family'), '2')
+    await waitFor(() => expect(m.contracts).toHaveBeenCalledWith('2'))
+  })
+
+  it('says a record tab is empty when the family has no nanny', async () => {
+    const user = setupUser()
+    renderWithProviders(<Planning />)
+    await screen.findByText('July 2026')
+    await user.click(screen.getByRole('tab', { name: 'Days off' }))
+    expect(
+      await screen.findByText('No nannies yet. Add your first one below.'),
+    ).toBeInTheDocument()
+  })
+
+  it('shows a loading state on a record tab while contracts load', async () => {
+    m.contracts.mockReturnValue(new Promise<Contract[]>(() => {}))
+    const user = setupUser()
+    renderWithProviders(<Planning />)
+    // The tabs only exist once the families are in: until then the page is the
+    // "create a family first" prompt.
+    await user.click(await screen.findByRole('tab', { name: 'Days off' }))
+    expect(await screen.findByText('Loading…')).toBeInTheDocument()
+  })
+
+  it('surfaces a load error on a record tab', async () => {
+    m.contracts.mockRejectedValue(new Error('boom'))
+    const user = setupUser()
+    renderWithProviders(<Planning />)
+    await screen.findByText('July 2026')
+    await user.click(screen.getByRole('tab', { name: 'Days off' }))
     expect(
       await screen.findByText('Could not load the planning.'),
     ).toBeInTheDocument()

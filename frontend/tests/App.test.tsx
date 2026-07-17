@@ -11,6 +11,7 @@ vi.mock('@/src/api/family', () => ({
 vi.mock('@/src/pages/Home', () => ({ default: () => <p>home</p> }))
 vi.mock('@/src/pages/LoginPage', () => ({ default: () => <p>login</p> }))
 vi.mock('@/src/pages/RegisterPage', () => ({ default: () => <p>register</p> }))
+vi.mock('@/src/pages/Planning', () => ({ default: () => <p>planning</p> }))
 
 const mockUseAuth = vi.mocked(useAuth)
 
@@ -55,5 +56,11 @@ describe('App routing', () => {
     setAuthenticated(true)
     renderAt('/nowhere')
     expect(screen.getByText('home')).toBeInTheDocument()
+  })
+
+  it('sends the old /leaves address to the planning it became a tab of', () => {
+    setAuthenticated(true)
+    renderAt('/leaves')
+    expect(screen.getByText('planning')).toBeInTheDocument()
   })
 })

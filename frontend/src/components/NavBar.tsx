@@ -2,7 +2,6 @@ import { useQuery } from '@tanstack/react-query'
 import {
   Baby,
   CalendarDays,
-  CalendarOff,
   ChevronUp,
   HomeIcon,
   Menu,
@@ -182,12 +181,6 @@ export function NavBar() {
                   {pendingContractInvites}
                 </span>
               )}
-            </NavLink>
-          </li>
-          <li>
-            <NavLink to="/leaves" className={linkClass}>
-              <CalendarOff size={18} aria-hidden="true" />
-              {t('nav.leaves')}
             </NavLink>
           </li>
           <li>

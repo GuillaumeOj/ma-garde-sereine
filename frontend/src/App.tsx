@@ -6,7 +6,6 @@ import { SettingsBar } from '@/src/components/SettingsBar'
 import Family from '@/src/pages/Family'
 import Home from '@/src/pages/Home'
 import InvitePage from '@/src/pages/InvitePage'
-import Leaves from '@/src/pages/Leaves'
 import LoginPage from '@/src/pages/LoginPage'
 import Nannies from '@/src/pages/Nannies'
 import Planning from '@/src/pages/Planning'
@@ -70,7 +69,8 @@ function App() {
         <Route path="/" element={<Home />} />
         <Route path="/planning" element={<Planning />} />
         <Route path="/nannies" element={<Nannies />} />
-        <Route path="/leaves" element={<Leaves />} />
+        {/* Days off became a Planning tab; keep the old address working. */}
+        <Route path="/leaves" element={<Navigate to="/planning" replace />} />
         <Route path="/family" element={<Family />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>

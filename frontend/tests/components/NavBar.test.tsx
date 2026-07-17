@@ -60,6 +60,17 @@ describe('NavBar', () => {
     )
   })
 
+  it('has no Days off link: days off are a Planning tab now', () => {
+    renderWithProviders(<NavBar />)
+    expect(
+      screen.queryByRole('link', { name: 'Days off' }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Planning' })).toHaveAttribute(
+      'href',
+      '/planning',
+    )
+  })
+
   it('badges the Family link with the pending invitation count', async () => {
     mockGetMyInvitations.mockResolvedValue([
       {
