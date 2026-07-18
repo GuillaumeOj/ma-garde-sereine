@@ -1,4 +1,6 @@
 import type { Contract, ContractSchedule } from '@/src/api/contracts'
+import type { ContractChild } from '@/src/api/declarations'
+import { hhmm } from '@/src/components/TimeField'
 
 // One nanny working a single time block on a given day.
 export interface WorkedEntry {
@@ -7,6 +9,27 @@ export interface WorkedEntry {
   nannyName: string
   start: string // "HH:mm"
   end: string // "HH:mm"
+  // First names of the children the contract covers who are present that day.
+  // The same for every block of one contract on one day, so it rides on each.
+  childNames: string[]
+}
+
+// The children of a contract present on `date`'s weekday. Mirrors the backend's
+// ChildPresence rule: a child with NO windows is present whenever the nanny works
+// (the common case), and a child with any window is present only on the weekdays
+// one of them falls on — so a child windowed Mon/Tue/Thu/Fri is absent Wednesday,
+// never "present because there is no Wednesday window".
+function childrenPresentOn(
+  children: ContractChild[],
+  weekday: number,
+): string[] {
+  return children
+    .filter(
+      (child) =>
+        child.windows.length === 0 ||
+        child.windows.some((window) => window.weekday === weekday),
+    )
+    .map((child) => child.first_name)
 }
 
 // Deterministic 32-bit string hash. A nanny's color is anchored to their id, so
@@ -44,11 +67,6 @@ export function nannyColorMap(
     slots[id] = index
   }
   return slots
-}
-
-// "08:00:00" -> "08:00". API serializes times with seconds.
-export function hhmm(time: string): string {
-  return time.slice(0, 5)
 }
 
 // Backend ScheduleBlock.weekday is Monday=0 … Sunday=6 (Python date.weekday()).
@@ -103,6 +121,7 @@ export function workedEntriesForDay(
   contracts: Contract[],
   schedulesByContract: Record<string, ContractSchedule[]>,
   nonWorkableHolidays: Set<string> = new Set(),
+  childrenByContract: Record<string, ContractChild[]> = {},
 ): WorkedEntry[] {
   const iso = toISODate(date)
   if (nonWorkableHolidays.has(iso)) return []
@@ -115,6 +134,11 @@ export function workedEntriesForDay(
       iso,
     )
     if (!schedule) continue
+    // The same for every block of this contract today, so resolve it once.
+    const childNames = childrenPresentOn(
+      childrenByContract[contract.id] ?? [],
+      weekday,
+    )
     for (const block of schedule.blocks) {
       if (block.weekday !== weekday) continue
       entries.push({
@@ -124,6 +148,7 @@ export function workedEntriesForDay(
           `${contract.nanny.first_name} ${contract.nanny.last_name}`.trim(),
         start: hhmm(block.start_time),
         end: hhmm(block.end_time),
+        childNames,
       })
     }
   }

@@ -2,8 +2,8 @@ import { useQuery } from '@tanstack/react-query'
 import {
   Baby,
   CalendarDays,
-  CalendarOff,
   ChevronUp,
+  FileText,
   HomeIcon,
   Menu,
   Settings,
@@ -170,6 +170,12 @@ export function NavBar() {
             </NavLink>
           </li>
           <li>
+            <NavLink to="/declarations" className={linkClass}>
+              <FileText size={18} aria-hidden="true" />
+              {t('nav.declarations')}
+            </NavLink>
+          </li>
+          <li>
             <NavLink to="/nannies" className={linkClass}>
               <Users size={18} aria-hidden="true" />
               {t('nav.nannies')}
@@ -182,12 +188,6 @@ export function NavBar() {
                   {pendingContractInvites}
                 </span>
               )}
-            </NavLink>
-          </li>
-          <li>
-            <NavLink to="/leaves" className={linkClass}>
-              <CalendarOff size={18} aria-hidden="true" />
-              {t('nav.leaves')}
             </NavLink>
           </li>
           <li>

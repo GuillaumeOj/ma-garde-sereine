@@ -3,10 +3,10 @@ import { Navigate, Outlet, Route, Routes } from 'react-router-dom'
 import { ProtectedRoute } from '@/src/auth/ProtectedRoute'
 import { NavBar } from '@/src/components/NavBar'
 import { SettingsBar } from '@/src/components/SettingsBar'
+import Declarations from '@/src/pages/Declarations'
 import Family from '@/src/pages/Family'
 import Home from '@/src/pages/Home'
 import InvitePage from '@/src/pages/InvitePage'
-import Leaves from '@/src/pages/Leaves'
 import LoginPage from '@/src/pages/LoginPage'
 import Nannies from '@/src/pages/Nannies'
 import Planning from '@/src/pages/Planning'
@@ -69,8 +69,10 @@ function App() {
       <Route element={<AppLayout />}>
         <Route path="/" element={<Home />} />
         <Route path="/planning" element={<Planning />} />
+        <Route path="/declarations" element={<Declarations />} />
         <Route path="/nannies" element={<Nannies />} />
-        <Route path="/leaves" element={<Leaves />} />
+        {/* Days off became a Planning tab; keep the old address working. */}
+        <Route path="/leaves" element={<Navigate to="/planning" replace />} />
         <Route path="/family" element={<Family />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>

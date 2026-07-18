@@ -46,6 +46,10 @@ describe('NavBar', () => {
       'href',
       '/',
     )
+    expect(screen.getByRole('link', { name: 'Declarations' })).toHaveAttribute(
+      'href',
+      '/declarations',
+    )
     expect(screen.getByRole('link', { name: 'Nannies' })).toHaveAttribute(
       'href',
       '/nannies',
@@ -57,6 +61,17 @@ describe('NavBar', () => {
     expect(screen.getByRole('link', { name: 'Settings' })).toHaveAttribute(
       'href',
       '/settings',
+    )
+  })
+
+  it('has no Days off link: days off are a Planning tab now', () => {
+    renderWithProviders(<NavBar />)
+    expect(
+      screen.queryByRole('link', { name: 'Days off' }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Planning' })).toHaveAttribute(
+      'href',
+      '/planning',
     )
   })
 

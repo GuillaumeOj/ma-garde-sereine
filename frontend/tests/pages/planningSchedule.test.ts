@@ -46,6 +46,7 @@ function contract(overrides: Partial<Contract> = {}): Contract {
     nanny: { id: 'n1', first_name: 'Marie', last_name: 'Curie' },
     starting_date: '2026-06-01',
     ending_date: null,
+    split_method: 'equal',
     paid_leave_days: 0,
     notes: '',
     families: [],
@@ -96,8 +97,49 @@ describe('workedEntriesForDay', () => {
         nannyName: 'Marie Curie',
         start: '08:00',
         end: '17:00',
+        // No children passed in, so none are named.
+        childNames: [],
       },
     ])
+  })
+
+  it('names the children present that weekday', () => {
+    const children = {
+      c1: [
+        // No windows: present whenever the nanny works.
+        {
+          id: 'cc1',
+          child: 'k1',
+          first_name: 'Léa',
+          family_id: 'f1',
+          windows: [],
+        },
+        // Windowed on Wednesday only: present today.
+        {
+          id: 'cc2',
+          child: 'k2',
+          first_name: 'Tom',
+          family_id: 'f1',
+          windows: [{ weekday: 2, start_time: '08:00', end_time: '12:00' }],
+        },
+        // Windowed on Monday only: absent on a Wednesday.
+        {
+          id: 'cc3',
+          child: 'k3',
+          first_name: 'Zoé',
+          family_id: 'f1',
+          windows: [{ weekday: 0, start_time: '08:00', end_time: '12:00' }],
+        },
+      ],
+    }
+    const [entry] = workedEntriesForDay(
+      WEDNESDAY,
+      [contract()],
+      schedules,
+      new Set(),
+      children,
+    )
+    expect(entry.childNames).toEqual(['Léa', 'Tom'])
   })
 
   it('emits nothing on a weekday with no matching block', () => {

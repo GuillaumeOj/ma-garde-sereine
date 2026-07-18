@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { useMemo, useState } from 'react'
+import { listChildren } from '@/src/api/children'
 import {
   acceptContractInvitation,
   type Contract,
@@ -25,17 +26,21 @@ import {
   getMyContractInvitations,
   type Nanny,
   revokeContractInvitation,
+  type SplitMethod,
+  updateContract,
   updateContractSchedule,
   updateContractTerms,
 } from '@/src/api/contracts'
+import { createContractChild } from '@/src/api/declarations'
 import { extractErrorMessages } from '@/src/api/errors'
 import { type Family, getFamilies } from '@/src/api/family'
 import { ConfirmButton } from '@/src/components/ConfirmButton'
+import { ContractChildrenSection } from '@/src/components/ContractChildrenSection'
 import { DateField, formatDate } from '@/src/components/DateField'
+import { DayWindowFields } from '@/src/components/DayWindowFields'
 import { FormErrors } from '@/src/components/FormErrors'
 import { Modal } from '@/src/components/Modal'
 import { SectionCard } from '@/src/components/SectionCard'
-import { TimeField } from '@/src/components/TimeField'
 import { Button } from '@/src/components/ui/button'
 import { Card, CardContent } from '@/src/components/ui/card'
 import { Input } from '@/src/components/ui/input'
@@ -43,6 +48,7 @@ import { Label } from '@/src/components/ui/label'
 import { useI18n } from '@/src/i18n/I18nContext'
 import type { Language, TranslationKey } from '@/src/i18n/translations'
 import { selectClass } from '@/src/lib/utils'
+import type { DayWindow } from '@/src/lib/weekdays'
 
 // --- Static reference content -----------------------------------------------
 
@@ -89,16 +95,6 @@ const MONEY_FIELDS: {
   },
 ]
 
-const WEEKDAY_KEYS: TranslationKey[] = [
-  'weekday.mon',
-  'weekday.tue',
-  'weekday.wed',
-  'weekday.thu',
-  'weekday.fri',
-  'weekday.sat',
-  'weekday.sun',
-]
-
 function effectiveRange(
   snapshot: { effective_from: string; effective_to: string | null },
   lang: Language,
@@ -142,11 +138,9 @@ function termsDraftToInput(draft: TermsDraft): ContractTermsInput {
   }
 }
 
-interface BlockDraft {
-  weekday: number
-  start_time: string
-  end_time: string
-}
+// A schedule block is a plain day window; the shape is shared with a child's
+// presence windows, and so is the day-copying that edits either.
+type BlockDraft = DayWindow
 interface ScheduleDraft {
   effective_from: string
   blocks: BlockDraft[]
@@ -171,20 +165,6 @@ function scheduleDraftToInput(draft: ScheduleDraft): ContractScheduleInput {
     effective_from: draft.effective_from || undefined,
     blocks: draft.blocks,
   }
-}
-
-// Copy every block of `from` onto each `toDays`, replacing those days.
-export function duplicateDayBlocks(
-  blocks: BlockDraft[],
-  from: number,
-  toDays: number[],
-): BlockDraft[] {
-  const source = blocks.filter((b) => b.weekday === from)
-  const kept = blocks.filter((b) => !toDays.includes(b.weekday))
-  const added = toDays.flatMap((day) =>
-    source.map((b) => ({ ...b, weekday: day })),
-  )
-  return [...kept, ...added]
 }
 
 // --- Reusable field groups --------------------------------------------------
@@ -270,40 +250,6 @@ function ScheduleFields({
   lang: Language
 }) {
   const { t } = useI18n()
-  // The day being copied from (its "Copy day" button was clicked), or null.
-  const [copyFrom, setCopyFrom] = useState<number | null>(null)
-  const [copyTo, setCopyTo] = useState<number[]>([])
-
-  // Keep blocks ordered by weekday so the editor always reads Monday→Sunday.
-  const sortByDay = (blocks: BlockDraft[]) =>
-    [...blocks].sort((a, b) => a.weekday - b.weekday)
-  const setBlocks = (blocks: BlockDraft[]) =>
-    onChange({ blocks: sortByDay(blocks) })
-  const addBlock = () =>
-    setBlocks([
-      ...draft.blocks,
-      { weekday: 0, start_time: '09:00', end_time: '17:00' },
-    ])
-  const removeBlock = (index: number) =>
-    setBlocks(draft.blocks.filter((_, i) => i !== index))
-  const updateBlock = (index: number, patch: Partial<BlockDraft>) =>
-    setBlocks(
-      draft.blocks.map((b, i) => (i === index ? { ...b, ...patch } : b)),
-    )
-
-  const openCopy = (day: number) => {
-    setCopyFrom(day)
-    setCopyTo([])
-  }
-  const toggleCopyTo = (day: number) =>
-    setCopyTo((prev) =>
-      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day],
-    )
-  const applyCopy = () => {
-    if (copyFrom !== null)
-      setBlocks(duplicateDayBlocks(draft.blocks, copyFrom, copyTo))
-    setCopyFrom(null)
-  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -314,117 +260,14 @@ function ScheduleFields({
         onChange={(v) => onChange({ effective_from: v })}
         lang={lang}
       />
-      {draft.blocks.map((block, index) => (
-        // Five controls never fit one phone row: wrapping alone would squeeze
-        // the time inputs to their min-content width, so stack them in a grid
-        // (day, then from/to side by side, then the actions) and only fall back
-        // to the single wrapping row once there is room for it.
-        <div
-          // biome-ignore lint/suspicious/noArrayIndexKey: draft rows have no id
-          key={index}
-          className="grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap"
-        >
-          <div className="col-span-2 flex flex-col gap-1">
-            <Label htmlFor={`block-day-${index}`}>{t('schedule.day')}</Label>
-            <select
-              id={`block-day-${index}`}
-              className={selectClass}
-              value={block.weekday}
-              onChange={(e) =>
-                updateBlock(index, { weekday: Number(e.target.value) })
-              }
-            >
-              {WEEKDAY_KEYS.map((key, day) => (
-                <option key={key} value={day}>
-                  {t(key)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <TimeField
-            id={`block-start-${index}`}
-            label={t('schedule.from')}
-            value={block.start_time}
-            onChange={(v) => updateBlock(index, { start_time: v })}
-            lang={lang}
-          />
-          <TimeField
-            id={`block-end-${index}`}
-            label={t('schedule.to')}
-            value={block.end_time}
-            onChange={(v) => updateBlock(index, { end_time: v })}
-            lang={lang}
-          />
-          <div className="col-span-2 flex gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => openCopy(block.weekday)}
-            >
-              {t('schedule.copyDay')}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => removeBlock(index)}
-            >
-              {t('schedule.removeBlock')}
-            </Button>
-          </div>
-        </div>
-      ))}
-      <Button
-        type="button"
-        variant="outline"
-        onClick={addBlock}
-        className="self-start"
-      >
-        {t('schedule.addBlock')}
-      </Button>
-
-      {copyFrom !== null && (
-        <Modal
-          title={t('schedule.copyDialogTitle')}
-          onClose={() => setCopyFrom(null)}
-        >
-          <p className="text-sm text-muted-foreground">
-            {t('schedule.copyDialogHint')} {t(WEEKDAY_KEYS[copyFrom])}
-          </p>
-          <div className="flex flex-wrap gap-3 text-sm">
-            {WEEKDAY_KEYS.map((key, day) =>
-              day === copyFrom ? null : (
-                <label key={key} className="flex items-center gap-1.5 py-1">
-                  <input
-                    type="checkbox"
-                    className="size-4"
-                    checked={copyTo.includes(day)}
-                    onChange={() => toggleCopyTo(day)}
-                  />
-                  {t(key)}
-                </label>
-              ),
-            )}
-          </div>
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              onClick={applyCopy}
-              disabled={copyTo.length === 0}
-            >
-              {t('schedule.apply')}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setCopyFrom(null)}
-            >
-              {t('common.cancel')}
-            </Button>
-          </div>
-        </Modal>
-      )}
+      <DayWindowFields
+        windows={draft.blocks}
+        onChange={(blocks) => onChange({ blocks })}
+        lang={lang}
+        idPrefix="block"
+        addLabel={t('schedule.addBlock')}
+        removeLabel={t('schedule.removeBlock')}
+      />
     </div>
   )
 }
@@ -933,14 +776,96 @@ function SharingSection({
   )
 }
 
+// --- how the families split the hours ---------------------------------------
+
+const SPLIT_METHODS: SplitMethod[] = ['equal', 'by_children']
+
+// The radios the families set once and can revisit — 50/50 or fair-by-children.
+// Just the choices; the caller supplies the heading, so this reads the same in
+// the wizard step and the edit card without either repeating the other's title.
+function SplitMethodChoice({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: SplitMethod
+  onChange: (value: SplitMethod) => void
+  disabled?: boolean
+}) {
+  const { t } = useI18n()
+  return (
+    <div className="flex flex-col gap-2">
+      {SPLIT_METHODS.map((method) => (
+        <label key={method} className="flex items-start gap-2 text-sm">
+          <input
+            type="radio"
+            name="split-method"
+            className="mt-0.5 size-4"
+            checked={value === method}
+            disabled={disabled}
+            onChange={() => onChange(method)}
+          />
+          <span>
+            <span className="font-medium">{t(`contract.split.${method}`)}</span>
+            <span className="block text-xs text-muted-foreground">
+              {t(`contract.split.${method}.hint`)}
+            </span>
+          </span>
+        </label>
+      ))}
+    </div>
+  )
+}
+
+// Editing the split on an existing contract. Its own card so it reads alongside
+// the schedule and children it depends on. Saved immediately — a radio has no
+// draft worth keeping.
+function SplitSection({
+  familyId,
+  contract,
+}: {
+  familyId: string
+  contract: Contract
+}) {
+  const { t } = useI18n()
+  const queryClient = useQueryClient()
+  const [errors, setErrors] = useState<string[]>([])
+
+  const mutation = useMutation({
+    mutationFn: (split_method: SplitMethod) =>
+      updateContract(familyId, contract.id, { split_method }),
+    onSuccess: async () => {
+      setErrors([])
+      await queryClient.invalidateQueries({ queryKey: ['contracts', familyId] })
+    },
+    onError: (err) => setErrors(extractErrorMessages(err, t('nanny.error'))),
+  })
+
+  return (
+    <SectionCard
+      title={t('contract.split')}
+      description={t('contract.splitHint')}
+    >
+      <SplitMethodChoice
+        value={contract.split_method}
+        onChange={(method) => mutation.mutate(method)}
+        disabled={mutation.isPending}
+      />
+      <FormErrors messages={errors} />
+    </SectionCard>
+  )
+}
+
 // --- Onboarding wizard ------------------------------------------------------
 
+// The order of the wizard, and the only place it is written down.
 const WIZARD_STEPS: TranslationKey[] = [
-  'wizard.step1',
-  'wizard.step2',
-  'wizard.step3',
-  'wizard.step4',
-  'wizard.step5',
+  'wizard.nanny',
+  'wizard.compensation',
+  'wizard.hours',
+  'wizard.children',
+  'wizard.daysOff',
+  'wizard.share',
 ]
 
 function ContractWizard({
@@ -963,15 +888,30 @@ function ContractWizard({
   const [lastName, setLastName] = useState('')
   const [startingDate, setStartingDate] = useState('')
   const [paidLeave, setPaidLeave] = useState('')
+  const [splitMethod, setSplitMethod] = useState<SplitMethod>('equal')
   const [terms, setTerms] = useState<TermsDraft>(EMPTY_TERMS)
   const [schedule, setSchedule] = useState<ScheduleDraft>(EMPTY_SCHEDULE)
+  const [childIds, setChildIds] = useState<string[]>([])
   const [shareEmail, setShareEmail] = useState('')
+
+  // Whose children are on offer: this family's own. The other family adds its
+  // own from its side once the contract is shared.
+  const { data: children } = useQuery({
+    queryKey: ['children', familyId],
+    queryFn: () => listChildren(familyId),
+  })
+
+  const toggleChild = (id: string) =>
+    setChildIds((prev) =>
+      prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id],
+    )
 
   const mutation = useMutation({
     mutationFn: async () => {
       const input: ContractInput = {
         starting_date: startingDate,
         paid_leave_days: paidLeave ? Number(paidLeave) : undefined,
+        split_method: splitMethod,
         ...(useExisting
           ? { nanny_id: nannyId }
           : { first_name: firstName, last_name: lastName }),
@@ -991,6 +931,14 @@ function ContractWizard({
           scheduleDraftToInput(schedule),
         )
       }
+      // Whole-time presence: the wizard's children are there whenever the nanny
+      // works, which is the common case. Narrowing is the section's job.
+      for (const id of childIds) {
+        await createContractChild(familyId, contract.id, {
+          child: id,
+          windows: [],
+        })
+      }
       if (shareEmail) {
         await createContractInvitation(familyId, contract.id, shareEmail)
       }
@@ -1005,7 +953,7 @@ function ContractWizard({
   const next = () => {
     setErrors([])
     if (step === 0 && !canLeaveStep1) {
-      setErrors([t('wizard.step1Error')])
+      setErrors([t('wizard.nannyError')])
       return
     }
     setStep((s) => s + 1)
@@ -1108,6 +1056,35 @@ function ContractWizard({
         )}
 
         {step === 3 && (
+          <fieldset className="flex flex-col gap-2">
+            <legend className="mb-2 text-sm font-medium">
+              {t('wizard.childrenOptional')}
+            </legend>
+            {children && children.length > 0 ? (
+              <>
+                {children.map((c) => (
+                  <label key={c.id} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={childIds.includes(c.id)}
+                      onChange={() => toggleChild(c.id)}
+                    />
+                    {c.first_name}
+                  </label>
+                ))}
+                <p className="text-xs text-muted-foreground">
+                  {t('wizard.childrenHint')}
+                </p>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                {t('contractChild.noChildren')}
+              </p>
+            )}
+          </fieldset>
+        )}
+
+        {step === 4 && (
           <div className="flex flex-col gap-1">
             <Label htmlFor="wizard-leave">{t('contract.paidLeave')}</Label>
             <Input
@@ -1119,15 +1096,27 @@ function ContractWizard({
           </div>
         )}
 
-        {step === 4 && (
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="wizard-share">{t('wizard.shareOptional')}</Label>
-            <Input
-              id="wizard-share"
-              type="email"
-              value={shareEmail}
-              onChange={(e) => setShareEmail(e.target.value)}
-            />
+        {step === 5 && (
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="wizard-share">{t('wizard.shareOptional')}</Label>
+              <Input
+                id="wizard-share"
+                type="email"
+                value={shareEmail}
+                onChange={(e) => setShareEmail(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <p className="text-sm font-medium">{t('contract.split')}</p>
+              <p className="text-xs text-muted-foreground">
+                {t('contract.splitHint')}
+              </p>
+              <SplitMethodChoice
+                value={splitMethod}
+                onChange={setSplitMethod}
+              />
+            </div>
           </div>
         )}
 
@@ -1429,6 +1418,14 @@ export default function Nannies() {
                         contract={contract}
                       />
                       <ScheduleSection
+                        familyId={activeFamilyId}
+                        contract={contract}
+                      />
+                      <ContractChildrenSection
+                        familyId={activeFamilyId}
+                        contract={contract}
+                      />
+                      <SplitSection
                         familyId={activeFamilyId}
                         contract={contract}
                       />
