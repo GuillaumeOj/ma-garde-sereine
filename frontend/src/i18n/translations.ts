@@ -773,6 +773,20 @@ const en = {
   'legal.contact.body':
     'For any request, write to [contact@ma-garde-sereine.fr].',
   'legal.lastUpdated': 'Last updated: [date]',
+  'help.nav': 'Help',
+  'nav.support': 'Support',
+  'help.page.title': 'Help center',
+  'help.page.subtitle':
+    'Guides and answers to set up your childcare, understand the pay and leave, and file with pajemploi.',
+  'help.backToIndex': 'Back to the help center',
+  'help.related': 'Related articles',
+  'help.category.getting-started': 'Getting started',
+  'help.category.declarations': 'Filing declarations',
+  'help.category.pay-leave': 'Pay & leave',
+  'help.category.trust': 'Trust & data',
+  'seo.help.title': 'Help center — schedule, nanny pay & pajemploi',
+  'seo.help.description':
+    'Guides for Ma Garde Sereine: getting started, shared care, how salary and paid leave are calculated, and how to file each month with pajemploi.',
   // Password reset entry point on the login card.
   'login.forgotLink': 'Forgot your password?',
   // Email verification notice shown after registration.
@@ -1569,6 +1583,20 @@ const fr: Record<TranslationKey, string> = {
   'legal.contact.body':
     'Pour toute demande, écrivez à [contact@ma-garde-sereine.fr].',
   'legal.lastUpdated': 'Dernière mise à jour : [date]',
+  'help.nav': 'Aide',
+  'nav.support': 'Support',
+  'help.page.title': "Centre d'aide",
+  'help.page.subtitle':
+    'Des guides et des réponses pour configurer votre garde, comprendre le salaire et les congés, et déclarer à pajemploi.',
+  'help.backToIndex': "Retour au centre d'aide",
+  'help.related': 'À lire aussi',
+  'help.category.getting-started': 'Prise en main',
+  'help.category.declarations': 'Déclarations',
+  'help.category.pay-leave': 'Salaire & congés',
+  'help.category.trust': 'Sécurité & données',
+  'seo.help.title': "Centre d'aide — planning, paie nounou & pajemploi",
+  'seo.help.description':
+    'Les guides de Ma Garde Sereine : prise en main, garde partagée, calcul du salaire et des congés payés, et déclaration mensuelle à pajemploi.',
   'login.forgotLink': 'Mot de passe oublié ?',
   'verify.title': 'Vérifiez votre e-mail',
   'verify.lead': 'Nous avons envoyé un lien de vérification à',

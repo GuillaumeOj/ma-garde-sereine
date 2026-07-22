@@ -1,8 +1,11 @@
 import {
   CalendarDays,
   ChevronUp,
+  ExternalLink,
   FileText,
+  HelpCircle,
   HomeIcon,
+  LifeBuoy,
   Menu,
   Settings,
   Users,
@@ -33,6 +36,12 @@ const linkClass = ({ isActive }: { isActive: boolean }) =>
 
 const badgeClass =
   'ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-medium text-primary-foreground'
+
+// Community support link (a Discord invite), configured per environment through
+// a Vercel env var. It is inlined at build time and only ever rendered here, in
+// the authenticated dashboard nav — so it stays off the public marketing pages.
+// Absent var → the link simply doesn't appear.
+const DISCORD_URL = import.meta.env.VITE_DISCORD_URL as string | undefined
 
 // Primary navigation. One <nav> serves both breakpoints: a static left sidebar
 // from md up, and an off-canvas drawer below it, opened by the burger in the
@@ -208,44 +217,89 @@ export function NavBar() {
               )}
             </NavLink>
           </li>
-          <li>
-            <NavLink to="/settings" className={linkClass}>
-              <Settings size={18} aria-hidden="true" />
-              {t('nav.settings')}
-            </NavLink>
-          </li>
         </ul>
-        <div className="relative mt-auto" ref={userRef}>
-          {menuOpen && (
-            <div
-              className="absolute right-0 bottom-[calc(100%+8px)] left-0 flex flex-col gap-2.5 rounded-xl border bg-popover p-3 shadow-md"
-              role="menu"
-            >
-              <AppearanceControls />
-              <Button
-                variant="destructive"
-                role="menuitem"
-                className="w-full justify-center"
-                onClick={logout}
+        {/* Settings and Help sit at the foot of the sidebar, above the account
+            menu, rather than in the primary list. mt-auto pushes this whole
+            bottom group down — on the desktop sidebar and the mobile drawer. */}
+        <div className="mt-auto flex flex-col gap-1 pt-2">
+          <ul className="flex flex-col gap-1">
+            <li>
+              <NavLink to="/settings" className={linkClass}>
+                <Settings size={18} aria-hidden="true" />
+                {t('nav.settings')}
+              </NavLink>
+            </li>
+            <li>
+              {/* The help center lives on the public marketing surface; opening
+                  it in a new tab keeps the dashboard shell in place rather than
+                  dropping a signed-in user onto the marketing header/footer. */}
+              <a
+                href="/help"
+                target="_blank"
+                rel="noopener noreferrer"
+                className={linkClass({ isActive: false })}
               >
-                {t('home.logout')}
-              </Button>
-            </div>
-          )}
-          <button
-            type="button"
-            className="flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm text-foreground transition-colors hover:bg-muted"
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            aria-label={t('nav.account')}
-            onClick={() => setMenuOpen((open) => !open)}
-          >
-            <span className="flex min-w-0 items-center gap-2">
-              <PersonAvatar name={displayName} size="sm" />
-              <span className="truncate">{displayName}</span>
-            </span>
-            <ChevronUp size={16} aria-hidden="true" />
-          </button>
+                <HelpCircle size={18} aria-hidden="true" />
+                {t('help.nav')}
+                <ExternalLink
+                  size={14}
+                  aria-hidden="true"
+                  className="ml-auto text-muted-foreground"
+                />
+              </a>
+            </li>
+            {/* Discord support, dashboard-only and env-driven (see DISCORD_URL). */}
+            {DISCORD_URL && (
+              <li>
+                <a
+                  href={DISCORD_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={linkClass({ isActive: false })}
+                >
+                  <LifeBuoy size={18} aria-hidden="true" />
+                  {t('nav.support')}
+                  <ExternalLink
+                    size={14}
+                    aria-hidden="true"
+                    className="ml-auto text-muted-foreground"
+                  />
+                </a>
+              </li>
+            )}
+          </ul>
+          <div className="relative" ref={userRef}>
+            {menuOpen && (
+              <div
+                className="absolute right-0 bottom-[calc(100%+8px)] left-0 flex flex-col gap-2.5 rounded-xl border bg-popover p-3 shadow-md"
+                role="menu"
+              >
+                <AppearanceControls />
+                <Button
+                  variant="destructive"
+                  role="menuitem"
+                  className="w-full justify-center"
+                  onClick={logout}
+                >
+                  {t('home.logout')}
+                </Button>
+              </div>
+            )}
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm text-foreground transition-colors hover:bg-muted"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              aria-label={t('nav.account')}
+              onClick={() => setMenuOpen((open) => !open)}
+            >
+              <span className="flex min-w-0 items-center gap-2">
+                <PersonAvatar name={displayName} size="sm" />
+                <span className="truncate">{displayName}</span>
+              </span>
+              <ChevronUp size={16} aria-hidden="true" />
+            </button>
+          </div>
         </div>
       </nav>
     </>
