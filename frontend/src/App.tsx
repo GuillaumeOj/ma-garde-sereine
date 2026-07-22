@@ -10,6 +10,8 @@ import Declarations from '@/src/pages/Declarations'
 import Family from '@/src/pages/Family'
 import Features from '@/src/pages/Features'
 import ForgotPasswordPage from '@/src/pages/ForgotPasswordPage'
+import HelpArticle from '@/src/pages/HelpArticle'
+import HelpCenter from '@/src/pages/HelpCenter'
 import Home from '@/src/pages/Home'
 import InvitePage from '@/src/pages/InvitePage'
 import Landing from '@/src/pages/Landing'
@@ -92,6 +94,10 @@ function App() {
         />
         <Route path="/features" element={<Features />} />
         <Route path="/pricing" element={<Pricing />} />
+        {/* Help center: a crawlable index and one page per article. Public so
+            the guides serve SEO; the same URLs are reached from the dashboard. */}
+        <Route path="/help" element={<HelpCenter />} />
+        <Route path="/help/:slug" element={<HelpArticle />} />
         <Route path="/privacy" element={<Privacy />} />
         <Route path="/legal" element={<LegalNotice />} />
       </Route>

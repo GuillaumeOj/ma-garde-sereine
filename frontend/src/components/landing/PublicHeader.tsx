@@ -30,6 +30,9 @@ export function PublicHeader() {
           <Button asChild variant="ghost" className="hidden sm:inline-flex">
             <Link to="/pricing">{t('landing.nav.pricing')}</Link>
           </Button>
+          <Button asChild variant="ghost" className="hidden sm:inline-flex">
+            <Link to="/help">{t('help.nav')}</Link>
+          </Button>
           {/* Login stays reachable on mobile; Features/Pricing collapse to the
               footer below the sm breakpoint. */}
           <Button asChild variant="ghost" size="sm">

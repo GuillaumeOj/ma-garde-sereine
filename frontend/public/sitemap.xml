@@ -16,6 +16,61 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://ma-garde-sereine.fr/help</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://ma-garde-sereine.fr/help/demarrer</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://ma-garde-sereine.fr/help/inviter-un-parent</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://ma-garde-sereine.fr/help/inviter-une-famille</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://ma-garde-sereine.fr/help/calcul-du-salaire</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://ma-garde-sereine.fr/help/conges-payes</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://ma-garde-sereine.fr/help/conges-sans-solde</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://ma-garde-sereine.fr/help/declarer-le-mois</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://ma-garde-sereine.fr/help/declarer-une-absence</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://ma-garde-sereine.fr/help/heures-exceptionnelles</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://ma-garde-sereine.fr/help/securite-et-donnees</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
     <loc>https://ma-garde-sereine.fr/privacy</loc>
     <changefreq>yearly</changefreq>
     <priority>0.3</priority>

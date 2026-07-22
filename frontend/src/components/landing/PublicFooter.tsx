@@ -10,6 +10,7 @@ type FooterLink = { to: string; labelKey: TranslationKey }
 const PRODUCT_LINKS: FooterLink[] = [
   { to: '/features', labelKey: 'landing.nav.features' },
   { to: '/pricing', labelKey: 'landing.nav.pricing' },
+  { to: '/help', labelKey: 'help.nav' },
   { to: '/login', labelKey: 'landing.nav.login' },
   { to: '/register', labelKey: 'landing.nav.register' },
 ]
