@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { type Child, listChildren } from '@/src/api/children'
 import {
   acceptContractInvitation,
@@ -25,6 +25,7 @@ import {
   getContractTerms,
   getMinimumWage,
   getMyContractInvitations,
+  getPaidLeaveDefault,
   type Nanny,
   revokeContractInvitation,
   type ScheduleBlock,
@@ -70,6 +71,8 @@ const URSSAF_MIN =
   'https://www.urssaf.fr/accueil/particulier/particulier-employeur/embaucher-un-salarie/remunerer-salarie-domicile.html#ancre-les-montants-minimums'
 const URSSAF_IND =
   'https://www.urssaf.fr/accueil/particulier/particulier-employeur/embaucher-un-salarie/remunerer-salarie-domicile.html#ancre-les-indemnites'
+const URSSAF_LEAVE =
+  'https://www.urssaf.fr/accueil/particulier/particulier-employeur/gerer-les-absences/gestion-conges-payes.html'
 
 type MoneyKey =
   | 'net_hourly_rate'
@@ -1371,6 +1374,20 @@ function ContractWizard({
     queryFn: () => listChildren(familyId),
   })
 
+  // Pre-fill the paid-leave field with the branch default so a family need not
+  // know the figure; they can still overwrite it. `leaveTouched` flips the moment
+  // the user edits the field, so a late-arriving default never clobbers what they
+  // typed — including an intentional "0", which a falsy check would miss.
+  const { data: paidLeaveDefault } = useQuery({
+    queryKey: ['paid-leave-default'],
+    queryFn: getPaidLeaveDefault,
+  })
+  const leaveTouched = useRef(false)
+  useEffect(() => {
+    if (leaveTouched.current || paidLeaveDefault?.annual_days == null) return
+    setPaidLeave(String(paidLeaveDefault.annual_days))
+  }, [paidLeaveDefault])
+
   const toggleChild = (id: string) =>
     setChildIds((prev) =>
       prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id],
@@ -1562,8 +1579,24 @@ function ContractWizard({
               id="wizard-leave"
               inputMode="numeric"
               value={paidLeave}
-              onChange={(e) => setPaidLeave(e.target.value)}
+              onChange={(e) => {
+                leaveTouched.current = true
+                setPaidLeave(e.target.value)
+              }}
             />
+            {/* The default is the statutory floor, not a ceiling, and it is not
+                enforced — a family may agree more. Flag it as the legal minimum. */}
+            <span className="text-xs text-muted-foreground">
+              {t('contract.paidLeaveHint')}{' '}
+              <a
+                className="underline"
+                href={URSSAF_LEAVE}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {t('terms.source')}
+              </a>
+            </span>
           </div>
         )}
 
